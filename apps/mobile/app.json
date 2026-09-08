@@ -1,0 +1,29 @@
+{
+    "expo": {
+        "name": "Rwanda Utility Alerts",
+        "slug": "rwanda-utility-alerts",
+        "version": "1.0.0",
+        "orientation": "portrait",
+        "userInterfaceStyle": "light",
+        "scheme": "rwanda-utility-alerts",
+        "ios": {
+            "supportsTablet": true,
+            "bundleIdentifier": "rw.utilityalerts.mobile"
+        },
+        "android": {
+            "package": "rw.utilityalerts.mobile",
+            "permissions": [
+                "POST_NOTIFICATIONS"
+            ]
+        },
+        "plugins": [
+            "expo-notifications"
+        ],
+        "extra": {
+            "apiUrl": "http://localhost:3000",
+            "eas": {
+                "projectId": "${EXPO_PUBLIC_EAS_PROJECT_ID}"
+            }
+        }
+    }
+}
