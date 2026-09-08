@@ -5,11 +5,13 @@ import {
     ManyToOne,
     JoinColumn,
     CreateDateColumn,
+    Index,
 } from 'typeorm';
 import { User } from '../users/user.entity';
 import { Outage } from '../outages/outage.entity';
 
 @Entity('notifications')
+@Index(['userId', 'outageId'], { unique: true })
 export class Notification {
     @PrimaryGeneratedColumn('uuid')
     id: string;

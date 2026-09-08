@@ -8,6 +8,7 @@ import { OutageLocation } from './outage-location.entity';
 
 import { Utility } from '../utilities/utility.entity';
 import { Location } from '../locations/location.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { Location } from '../locations/location.entity';
       Utility,
       Location,
     ]),
+    NotificationsModule,
   ],
   controllers: [OutagesController],
   providers: [OutagesService],

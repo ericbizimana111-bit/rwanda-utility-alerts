@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 
 import { Notification } from './notification.entity';
 import { User } from '../users/user.entity';
@@ -30,7 +30,7 @@ export class NotificationsService {
     async createNotification(
         userId: string,
         outageId: string,
-    ) {
+    ): Promise<Notification | null> {
         const user = await this.usersRepository.findOne({
             where: { id: userId },
         });
@@ -43,7 +43,7 @@ export class NotificationsService {
             where: { id: outageId },
             relations: {
                 utility: true,
-                location: true,
+                outageLocations: { location: true },
             },
         });
 
@@ -63,6 +63,10 @@ export class NotificationsService {
             return existing;
         }
 
+        if (!user.notificationsEnabled) {
+            return null;
+        }
+
         const notification =
             this.notificationsRepository.create({
                 userId,
@@ -73,34 +77,56 @@ export class NotificationsService {
                 isRead: false,
             });
 
-        return this.notificationsRepository.save(
-            notification,
-        );
+        try {
+            return await this.notificationsRepository.save(notification);
+        } catch (error) {
+            if (
+                error instanceof QueryFailedError &&
+                (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code === '23505'
+            ) {
+                return this.notificationsRepository.findOne({
+                    where: { userId, outageId },
+                });
+            }
+
+            throw error;
+        }
     }
 
     private buildMessage(outage: Outage): string {
-        const location = outage.location;
+        const locationTexts = Array.from(
+            new Set(
+                (outage.outageLocations ?? [])
+                    .map(({ location }) =>
+                        [
+                            location?.district,
+                            location?.sector,
+                            location?.cell,
+                            location?.village,
+                        ]
+                            .filter(Boolean)
+                            .join(', '),
+                    )
+                    .filter(Boolean),
+            ),
+        );
 
-        const locationParts = [
-            location?.district,
-            location?.sector,
-            location?.cell,
-        ].filter(Boolean);
-
-        const locationText =
-            locationParts.length > 0
-                ? locationParts.join(', ')
-                : 'your area';
+        const locationText = locationTexts.length > 0
+            ? locationTexts.join('; ')
+            : 'the affected locations';
 
         const start = outage.startTime
             ? outage.startTime.toLocaleString('en-RW')
-            : 'an unspecified time';
-
+            : 'an unspecified start time';
         const end = outage.endTime
-            ? outage.endTime.toLocaleString('en-RW')
-            : 'an unspecified time';
+            ? ` until ${outage.endTime.toLocaleString('en-RW')}`
+            : '';
+        const reason = outage.description ? ` Reason: ${outage.description}` : '';
+        const source = outage.sourceName
+            ? ` Source: ${outage.sourceName}${outage.sourceUrl ? ` (${outage.sourceUrl})` : ''}.`
+            : '';
 
-        return `${outage.utility.name} interruption in ${locationText}. Expected from ${start} to ${end}.`;
+        return `${outage.utility.name} outage in ${locationText}. ${outage.title}.${reason} Expected from ${start}${end}.${source}`;
     }
 
     async getUserNotifications(userId: string) {
@@ -111,7 +137,7 @@ export class NotificationsService {
             relations: {
                 outage: {
                     utility: true,
-                    location: true,
+                    outageLocations: { location: true },
                 },
             },
             order: {
@@ -152,6 +178,10 @@ export class NotificationsService {
             where: {
                 id: outageId,
             },
+            relations: {
+                utility: true,
+                outageLocations: { location: true },
+            },
         });
 
         if (!outage) {
@@ -160,35 +190,53 @@ export class NotificationsService {
             );
         }
 
-        const locationIds = outage.locationId
-            ? [outage.locationId]
-            : [];
+        const locationIds = Array.from(
+            new Set(
+                (outage.outageLocations ?? [])
+                    .map((outageLocation) => outageLocation.locationId)
+                    .filter(Boolean),
+            ),
+        );
 
-        const subscriptions =
-            await this.subscriptionsRepository.find({
-                where: locationIds.length > 0
-                    ? {
-                        locationId: locationIds[0],
-                        utilityId: outage.utilityId,
-                        isActive: true,
-                    }
-                    : undefined,
-            });
+        if (!locationIds.length) {
+            return {
+                outageId,
+                matchingSubscriptions: 0,
+                notificationsCreated: 0,
+                notifications: [],
+            };
+        }
+
+        const subscriptions = await this.subscriptionsRepository
+            .createQueryBuilder('subscription')
+            .innerJoinAndSelect('subscription.user', 'user')
+            .where('subscription.isActive = :isActive', { isActive: true })
+            .andWhere('subscription.utilityId = :utilityId', { utilityId: outage.utilityId })
+            .andWhere('subscription.locationId IN (:...locationIds)', { locationIds })
+            .andWhere('user.notificationsEnabled = :notificationsEnabled', { notificationsEnabled: true })
+            .getMany();
+
+        const matchingUserIds = Array.from(
+            new Set(subscriptions.map((subscription) => subscription.userId)),
+        );
 
         const notifications: Notification[] = [];
 
-        for (const subscription of subscriptions) {
+        for (const userId of matchingUserIds) {
             const notification =
                 await this.createNotification(
-                    subscription.userId,
+                    userId,
                     outage.id,
                 );
 
-            notifications.push(notification);
+            if (notification) {
+                notifications.push(notification);
+            }
         }
 
         return {
             outageId,
+            matchingSubscriptions: subscriptions.length,
             notificationsCreated: notifications.length,
             notifications,
         };

@@ -10,6 +10,8 @@ import {
 
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
@@ -37,6 +39,8 @@ export class NotificationsController {
     }
 
     @Post('outage/:outageId')
+    @UseGuards(RolesGuard)
+    @Roles('ADMIN')
     async createForOutage(
         @Param('outageId') outageId: string,
     ) {
