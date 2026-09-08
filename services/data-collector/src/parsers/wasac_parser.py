@@ -151,7 +151,7 @@ class WasacParser:
             source_url = urljoin(cls.OFFICIAL_URL, href)
             text = f"{title} {summary}"
             districts = cls.extract_districts(text)
-            areas_by_district = cls.extract_areas(text)
+            areas_by_district = cls.extract_areas(summary)
             external_id = hashlib.sha256(
                 f"{cls.SOURCE_NAME}|{source_url}|{title}".encode("utf-8")
             ).hexdigest()
