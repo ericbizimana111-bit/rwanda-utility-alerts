@@ -7,7 +7,7 @@ import {
     CreateDateColumn,
     UpdateDateColumn,
 } from 'typeorm';
-import { OutageLocation } from '../outages/outage-location.entity';
+import type { OutageLocation } from '../outages/outage-location.entity';
 
 @Entity('locations')
 @Index(['province'])
@@ -34,7 +34,7 @@ export class Location {
     @Column({ type: 'varchar', nullable: true })
     village: string | null;
 
-    @OneToMany(() => OutageLocation, (outageLocation) => outageLocation.location)
+    @OneToMany('OutageLocation', (outageLocation: OutageLocation) => outageLocation.location)
     outageLocations: OutageLocation[];
 
     @CreateDateColumn()

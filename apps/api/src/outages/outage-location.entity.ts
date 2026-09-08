@@ -7,8 +7,8 @@ import {
     CreateDateColumn,
     Index,
 } from 'typeorm';
-import { Outage } from './outage.entity';
-import { Location } from '../locations/location.entity';
+import type { Outage } from './outage.entity';
+import type { Location } from '../locations/location.entity';
 
 @Entity('outage_locations')
 @Index(['outageId'])
@@ -17,7 +17,7 @@ export class OutageLocation {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
-    @ManyToOne(() => Outage, (outage) => outage.outageLocations, {
+    @ManyToOne('Outage', (outage: Outage) => outage.outageLocations, {
         onDelete: 'CASCADE',
     })
     @JoinColumn({ name: 'outageId' })
@@ -26,7 +26,7 @@ export class OutageLocation {
     @Column()
     outageId: string;
 
-    @ManyToOne(() => Location, (location) => location.outageLocations, {
+    @ManyToOne('Location', (location: Location) => location.outageLocations, {
         onDelete: 'CASCADE',
     })
     @JoinColumn({ name: 'locationId' })

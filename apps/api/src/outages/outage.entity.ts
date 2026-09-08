@@ -9,9 +9,9 @@ import {
     UpdateDateColumn,
     Index,
 } from 'typeorm';
-import { Utility } from '../utilities/utility.entity';
-import { Location } from '../locations/location.entity';
-import { OutageLocation } from './outage-location.entity';
+import type { Utility } from '../utilities/utility.entity';
+import type { Location } from '../locations/location.entity';
+import type { OutageLocation } from './outage-location.entity';
 
 @Entity('outages')
 @Index(['utilityId'])
@@ -29,21 +29,21 @@ export class Outage {
     @Column({ type: 'text', nullable: true })
     description: string | null;
 
-    @ManyToOne(() => Utility, { onDelete: 'CASCADE' })
+    @ManyToOne('Utility', { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'utilityId' })
     utility: Utility;
 
     @Column()
     utilityId: string;
 
-    @ManyToOne(() => Location, { onDelete: 'SET NULL', nullable: true })
+    @ManyToOne('Location', { onDelete: 'SET NULL', nullable: true })
     @JoinColumn({ name: 'locationId' })
     location: Location | null;
 
     @Column({ type: 'uuid', nullable: true })
     locationId: string | null;
 
-    @OneToMany(() => OutageLocation, (outageLocation) => outageLocation.outage)
+    @OneToMany('OutageLocation', (outageLocation: OutageLocation) => outageLocation.outage)
     outageLocations: OutageLocation[];
 
     @Column({ type: 'timestamp', nullable: true })

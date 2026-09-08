@@ -7,8 +7,8 @@ import {
     CreateDateColumn,
     Index,
 } from 'typeorm';
-import { User } from '../users/user.entity';
-import { Outage } from '../outages/outage.entity';
+import type { User } from '../users/user.entity';
+import type { Outage } from '../outages/outage.entity';
 
 @Entity('notifications')
 @Index(['userId', 'outageId'], { unique: true })
@@ -16,14 +16,14 @@ export class Notification {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
-    @ManyToOne(() => User, { onDelete: 'CASCADE' })
+    @ManyToOne('User', { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'userId' })
     user: User;
 
     @Column()
     userId: string;
 
-    @ManyToOne(() => Outage, { onDelete: 'CASCADE' })
+    @ManyToOne('Outage', { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'outageId' })
     outage: Outage;
 
