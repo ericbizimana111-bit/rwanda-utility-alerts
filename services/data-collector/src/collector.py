@@ -62,6 +62,7 @@ class UnifiedCollector:
         duplicates = 0
         unresolved = 0
         failures = 0
+        wasac_ingestable = 0
 
         electricity = await self.utility_resolver.find_by_code("ELECTRICITY")
         water = await self.utility_resolver.find_by_code("WATER")
@@ -105,35 +106,78 @@ class UnifiedCollector:
         water_announcements = await self.collect_wasac()
         for item in water_announcements:
             try:
-                if not item.get("district"):
+                if item.get("status") not in {"planned", "active"}:
+                    logger.info(
+                        "Skipping non-current WASAC announcement %s (%s)",
+                        item.get("external_id"),
+                        item.get("status"),
+                    )
                     continue
-                location = await self.location_resolver.find_location(
-                    district=item.get("district"),
-                    area=item.get("sector") or item.get("district") or "",
-                )
-                if not location:
+
+                if not item.get("start_time"):
+                    logger.info(
+                        "Skipping WASAC announcement without an event start time: %s",
+                        item.get("external_id"),
+                    )
+                    continue
+
+                districts = item.get("districts") or []
+                if not districts:
                     unresolved += 1
+                    logger.warning(
+                        "Skipping WASAC announcement without resolved districts: %s",
+                        item.get("external_id"),
+                    )
                     continue
+
+                matched_locations = []
+                areas_by_district = item.get("areas_by_district") or {}
+                for district in districts:
+                    locations = await self.location_resolver.find_locations(
+                        district=district,
+                        areas=areas_by_district.get(
+                            district) or item.get("sector") or "",
+                    )
+                    if not locations:
+                        unresolved += 1
+                        logger.warning(
+                            "Skipping WASAC announcement with unresolved locations: %s (%s)",
+                            item.get("external_id"),
+                            district,
+                        )
+                        matched_locations = []
+                        break
+                    matched_locations.extend(locations)
+
+                unique_locations = list(
+                    {location["id"]: location for location in matched_locations}.values())
+                if not unique_locations:
+                    continue
+
+                wasac_ingestable += 1
 
                 payload = {
                     "title": item.get("title") or "Water interruption",
-                    "description": item.get("summary") or item.get("title"),
+                    "description": item.get("description") or item.get("summary") or item.get("title"),
                     "utilityId": water["id"],
-                    "locationId": location["id"],
-                    "startTime": item.get("start_time") or item.get("publication_date") or "2026-01-01T00:00:00Z",
-                    "endTime": item.get("end_time") or item.get("publication_date") or "2026-01-01T00:00:00Z",
-                    "status": "planned",
+                    "locationId": unique_locations[0]["id"],
+                    "locationIds": [location["id"] for location in unique_locations],
+                    "startTime": item["start_time"].isoformat() if hasattr(item["start_time"], "isoformat") else item["start_time"],
+                    "endTime": item.get("end_time").isoformat() if hasattr(item.get("end_time"), "isoformat") else item.get("end_time"),
+                    "status": item.get("status"),
                     "sourceType": "official",
-                    "sourceName": "WASAC",
+                    "sourceName": item.get("source_name") or "WASAC Group",
                     "sourceUrl": item.get("source_url") or settings.WASAC_BASE_URL,
-                    "externalId": item.get("external_id") or item.get("source_url") or item.get("title"),
+                    "externalId": item.get("external_id"),
                 }
 
                 response = await self.api_client.create_outage(
                     outage=payload,
-                    location_id=location["id"],
+                    location_id=unique_locations[0]["id"],
                     utility_id=water["id"],
                     token=None,
+                    location_ids=[location["id"]
+                                  for location in unique_locations],
                 )
 
                 if response.get("status") == "duplicate":
@@ -148,6 +192,7 @@ class UnifiedCollector:
         return {
             "reg_outages": len(reg_outages),
             "wasac_announcements": len(water_announcements),
+            "wasac_ingestable": wasac_ingestable,
             "created": created,
             "duplicates": duplicates,
             "unresolved": unresolved,

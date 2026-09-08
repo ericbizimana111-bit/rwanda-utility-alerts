@@ -21,9 +21,9 @@ class OutageData(BaseModel):
 
     village: Optional[str] = None
 
-    start_time: datetime
+    start_time: Optional[datetime] = None
 
-    end_time: datetime
+    end_time: Optional[datetime] = None
 
     status: str = "planned"
 
