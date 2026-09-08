@@ -40,7 +40,7 @@ export class Report {
     @Column({ type: 'text' })
     description: string;
 
-    @Column({ default: 'pending' })
+    @Column({ type: 'varchar', default: 'pending' })
     status: string;
 
     @CreateDateColumn()

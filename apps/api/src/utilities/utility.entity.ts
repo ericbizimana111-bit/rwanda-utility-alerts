@@ -17,8 +17,8 @@ export class Utility {
     @Column({ unique: true })
     code: string;
 
-    @Column({ nullable: true })
-    description: string;
+    @Column({ type: 'text', nullable: true })
+    description: string | null;
 
     @Column({ default: true })
     isActive: boolean;

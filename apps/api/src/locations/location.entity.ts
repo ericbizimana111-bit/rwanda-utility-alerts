@@ -25,13 +25,13 @@ export class Location {
     @Column()
     district: string;
 
-    @Column({ nullable: true })
+    @Column({ type: 'varchar', nullable: true })
     sector: string | null;
 
-    @Column({ nullable: true })
+    @Column({ type: 'varchar', nullable: true })
     cell: string | null;
 
-    @Column({ nullable: true })
+    @Column({ type: 'varchar', nullable: true })
     village: string | null;
 
     @OneToMany(() => OutageLocation, (outageLocation) => outageLocation.location)

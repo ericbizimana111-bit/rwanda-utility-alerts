@@ -23,14 +23,14 @@ export class DataSource {
     @Column({ default: true })
     isActive: boolean;
 
-    @Column({ nullable: true })
-    lastCheckedAt: Date;
+    @Column({ type: 'timestamp', nullable: true })
+    lastCheckedAt: Date | null;
 
-    @Column({ nullable: true })
-    lastSuccessfulCheckAt: Date;
+    @Column({ type: 'timestamp', nullable: true })
+    lastSuccessfulCheckAt: Date | null;
 
-    @Column({ nullable: true })
-    lastError: string;
+    @Column({ type: 'text', nullable: true })
+    lastError: string | null;
 
     @CreateDateColumn()
     createdAt: Date;

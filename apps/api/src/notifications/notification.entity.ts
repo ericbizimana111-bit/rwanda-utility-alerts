@@ -37,11 +37,11 @@ export class Notification {
     @Column({ default: false })
     isRead: boolean;
 
-    @Column({ default: 'pending' })
+    @Column({ type: 'varchar', default: 'pending' })
     status: string;
 
-    @Column({ nullable: true })
-    sentAt: Date;
+    @Column({ type: 'timestamp', nullable: true })
+    sentAt: Date | null;
 
     @CreateDateColumn()
     createdAt: Date;

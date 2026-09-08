@@ -40,7 +40,7 @@ export class Outage {
     @JoinColumn({ name: 'locationId' })
     location: Location | null;
 
-    @Column({ nullable: true })
+    @Column({ type: 'uuid', nullable: true })
     locationId: string | null;
 
     @OneToMany(() => OutageLocation, (outageLocation) => outageLocation.outage)
@@ -52,16 +52,16 @@ export class Outage {
     @Column({ type: 'timestamp', nullable: true })
     endTime: Date | null;
 
-    @Column({ default: 'planned' })
+    @Column({ type: 'varchar', default: 'planned' })
     status: string;
 
-    @Column({ default: 'official' })
+    @Column({ type: 'varchar', default: 'official' })
     sourceType: string;
 
-    @Column({ nullable: true })
+    @Column({ type: 'varchar', nullable: true })
     sourceName: string | null;
 
-    @Column({ nullable: true })
+    @Column({ type: 'varchar', nullable: true })
     sourceUrl: string | null;
 
     @Column({ unique: true })

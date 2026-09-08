@@ -24,7 +24,7 @@ export class Device {
     @Column()
     pushToken: string;
 
-    @Column({ nullable: true })
+    @Column({ type: 'varchar', nullable: true })
     platform: string | null;
 
     @Column({ default: true })
