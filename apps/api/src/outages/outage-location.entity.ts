@@ -1,11 +1,11 @@
 import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  ManyToOne,
-  JoinColumn,
-  CreateDateColumn,
-  Index,
+    Entity,
+    PrimaryGeneratedColumn,
+    Column,
+    ManyToOne,
+    JoinColumn,
+    CreateDateColumn,
+    Index,
 } from 'typeorm';
 import { Outage } from './outage.entity';
 import { Location } from '../locations/location.entity';
@@ -14,27 +14,27 @@ import { Location } from '../locations/location.entity';
 @Index(['outageId'])
 @Index(['locationId'])
 export class OutageLocation {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
 
-  @ManyToOne(() => Outage, (outage) => outage.outageLocations, {
-    onDelete: 'CASCADE',
-  })
-  @JoinColumn({ name: 'outageId' })
-  outage: Outage;
+    @ManyToOne(() => Outage, (outage) => outage.outageLocations, {
+        onDelete: 'CASCADE',
+    })
+    @JoinColumn({ name: 'outageId' })
+    outage: Outage;
 
-  @Column()
-  outageId: string;
+    @Column()
+    outageId: string;
 
-  @ManyToOne(() => Location, (location) => location.outageLocations, {
-    onDelete: 'CASCADE',
-  })
-  @JoinColumn({ name: 'locationId' })
-  location: Location;
+    @ManyToOne(() => Location, (location) => location.outageLocations, {
+        onDelete: 'CASCADE',
+    })
+    @JoinColumn({ name: 'locationId' })
+    location: Location;
 
-  @Column()
-  locationId: string;
+    @Column()
+    locationId: string;
 
-  @CreateDateColumn()
-  createdAt: Date;
+    @CreateDateColumn()
+    createdAt: Date;
 }
