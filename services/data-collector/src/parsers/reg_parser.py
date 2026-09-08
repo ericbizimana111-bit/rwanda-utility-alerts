@@ -5,6 +5,14 @@ from bs4 import BeautifulSoup
 
 class RegParser:
 
+    VALID_STATUSES = {
+        "planned",
+        "current",
+        "ongoing",
+        "active",
+        "scheduled",
+    }
+
     MONTHS = {
         "january": 1,
         "february": 2,
@@ -25,42 +33,53 @@ class RegParser:
         return " ".join(value.split())
 
     @staticmethod
+    def parse_status(value: str) -> str:
+        cleaned = RegParser.clean_text(value or "")
+        if not cleaned:
+            return ""
+        return cleaned
+
+    @staticmethod
     def parse(html: str) -> list[dict]:
-        soup = BeautifulSoup(
-            html,
-            "html.parser",
-        )
+        soup = BeautifulSoup(html, "html.parser")
+        outages: list[dict] = []
 
-        outages = []
+        tables = soup.select("table") or [soup]
 
-        for row in soup.find_all("tr"):
-            cells = row.find_all(
-                ["td", "th"]
-            )
+        for table in tables:
+            for row in table.find_all("tr"):
+                cells = row.find_all(["td", "th"])
+                if not cells:
+                    continue
 
-            values = [
-                RegParser.clean_text(
-                    cell.get_text(" ", strip=True)
-                )
-                for cell in cells
-            ]
+                values = [
+                    RegParser.clean_text(cell.get_text(" ", strip=True))
+                    for cell in cells
+                ]
 
-            if len(values) < 6:
-                continue
+                if len(values) < 6:
+                    continue
 
-            if values[0].lower() == "date":
-                continue
+                if values[0].lower() == "date":
+                    continue
 
-            outage = {
-                "date": values[0],
-                "time": values[1],
-                "districts": values[2],
-                "areas": values[3],
-                "reason": values[4],
-                "status": values[5],
-            }
+                status = RegParser.parse_status(values[5])
+                if not status:
+                    continue
 
-            if outage["status"].lower() == "planned":
+                status_key = status.lower()
+                if status_key not in RegParser.VALID_STATUSES:
+                    continue
+
+                outage = {
+                    "date": values[0],
+                    "time": values[1],
+                    "districts": values[2],
+                    "areas": values[3],
+                    "reason": values[4],
+                    "status": status,
+                }
+
                 outages.append(outage)
 
         return outages
