@@ -26,7 +26,7 @@ class ApiClient:
         token: Optional[str] = None,
     ) -> dict:
 
-        url = f"{self.base_url}/outages"
+        url = f"{self.base_url}/outages/internal/collector"
 
         payload = {
             "title": outage.title,
@@ -42,7 +42,9 @@ class ApiClient:
             "externalId": outage.external_id,
         }
 
-        headers = {}
+        headers = {
+            "X-API-Key": settings.COLLECTOR_API_KEY,
+        }
 
         if token:
             headers["Authorization"] = (

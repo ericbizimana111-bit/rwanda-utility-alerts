@@ -12,6 +12,11 @@ class Settings:
         "http://localhost:3000",
     )
 
+    COLLECTOR_API_KEY = os.getenv(
+        "COLLECTOR_API_KEY",
+        "utility-alerts-collector-2026-secret",
+    )
+
     REG_BASE_URL = os.getenv(
         "REG_BASE_URL",
         "https://www.reg.rw",
