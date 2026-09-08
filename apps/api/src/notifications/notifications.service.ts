@@ -223,6 +223,17 @@ export class NotificationsService {
         const notifications: Notification[] = [];
 
         for (const userId of matchingUserIds) {
+            const existing = await this.notificationsRepository.findOne({
+                where: {
+                    userId,
+                    outageId,
+                },
+            });
+
+            if (existing) {
+                continue;
+            }
+
             const notification =
                 await this.createNotification(
                     userId,
