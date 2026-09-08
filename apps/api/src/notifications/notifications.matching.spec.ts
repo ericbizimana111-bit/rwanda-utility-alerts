@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import { NotificationsService } from './notifications.service';
 
 class InMemoryNotificationStore {
