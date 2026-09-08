@@ -24,6 +24,7 @@ class ApiClient:
         location_id: str,
         utility_id: str,
         token: Optional[str] = None,
+        location_ids: Optional[list[str]] = None,
     ) -> dict:
 
         url = f"{self.base_url}/outages/internal/collector"
@@ -33,6 +34,7 @@ class ApiClient:
             "description": outage.description,
             "utilityId": utility_id,
             "locationId": location_id,
+            "locationIds": location_ids or [location_id],
             "startTime": outage.start_time.isoformat(),
             "endTime": outage.end_time.isoformat(),
             "status": outage.status,

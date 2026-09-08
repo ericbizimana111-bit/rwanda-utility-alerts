@@ -72,23 +72,26 @@ class UnifiedCollector:
         reg_outages = await self.collect_reg()
         for outage_data in reg_outages:
             try:
-                location = await self.location_resolver.find_location(
+                locations = await self.location_resolver.find_locations(
                     district=outage_data.get("district") or "",
                     area=outage_data.get("sector") or outage_data.get(
                         "district") or "",
                 )
 
-                if not location:
+                if not locations:
                     unresolved += 1
-                    logger.warning("Unresolved REG location for %s",
-                                   outage_data.get("external_id"))
+                    logger.warning(
+                        "Skipping REG outage with unresolved locations: %s",
+                        outage_data.get("external_id"),
+                    )
                     continue
 
                 response = await self.api_client.create_outage(
                     outage=outage_data,
-                    location_id=location["id"],
+                    location_id=locations[0]["id"],
                     utility_id=electricity["id"],
                     token=None,
+                    location_ids=[location["id"] for location in locations],
                 )
 
                 if response.get("status") == "duplicate":

@@ -4,7 +4,10 @@ from typing import Optional
 import httpx
 
 from src.config import settings
+from src.logger import get_logger
 from src.rwanda_locations import DISTRICT_ALIASES
+
+logger = get_logger("location-resolver")
 
 
 class LocationResolver:
@@ -62,27 +65,59 @@ class LocationResolver:
         district: str,
         area: str = "",
     ) -> Optional[dict]:
+        locations = await self.find_locations(district, area)
+        return locations[0] if locations else None
+
+    async def find_locations(
+        self,
+        district: str,
+        areas: str = "",
+    ) -> list[dict]:
         district_name = self.canonical_district(district)
         if not district_name:
-            return None
+            return []
 
         locations = await self._get_district_locations(district_name)
-        area_key = self.normalize_text(area)
+        area_values = [
+            value.strip()
+            for value in re.split(r"[,;/]", areas or "")
+            if value.strip()
+        ]
 
-        for location in locations:
+        if not area_values:
+            return []
+
+        matched: list[dict] = []
+        unresolved: list[str] = []
+
+        for area in area_values:
+            area_key = self.normalize_text(area)
             candidates = [
-                location.get("sector") or "",
-                location.get("cell") or "",
-                location.get("village") or "",
+                location
+                for location in locations
+                if any(
+                    self.normalize_text(location.get(field) or "") == area_key
+                    for field in ("sector", "cell", "village")
+                )
             ]
-            for candidate in candidates:
-                if self.normalize_text(candidate) == area_key:
-                    return location
 
-        if locations:
-            return locations[0]
+            if not candidates:
+                unresolved.append(area)
+                continue
 
-        return None
+            location = candidates[0]
+            if location not in matched:
+                matched.append(location)
+
+        if unresolved:
+            logger.warning(
+                "Unresolved location areas for district %s: %s",
+                district_name,
+                ", ".join(unresolved),
+            )
+            return []
+
+        return matched
 
     async def _get_district_locations(
         self,
