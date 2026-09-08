@@ -74,7 +74,7 @@ class UnifiedCollector:
             try:
                 locations = await self.location_resolver.find_locations(
                     district=outage_data.get("district") or "",
-                    area=outage_data.get("sector") or outage_data.get(
+                    areas=outage_data.get("sector") or outage_data.get(
                         "district") or "",
                 )
 

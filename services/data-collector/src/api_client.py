@@ -20,7 +20,7 @@ class ApiClient:
 
     async def create_outage(
         self,
-        outage: OutageData,
+        outage: OutageData | dict,
         location_id: str,
         utility_id: str,
         token: Optional[str] = None,
@@ -29,19 +29,21 @@ class ApiClient:
 
         url = f"{self.base_url}/outages/internal/collector"
 
+        values = outage.model_dump() if isinstance(outage, OutageData) else outage
+
         payload = {
-            "title": outage.title,
-            "description": outage.description,
+            "title": values["title"],
+            "description": values.get("description"),
             "utilityId": utility_id,
             "locationId": location_id,
             "locationIds": location_ids or [location_id],
-            "startTime": outage.start_time.isoformat(),
-            "endTime": outage.end_time.isoformat(),
-            "status": outage.status,
-            "sourceType": outage.source_type,
-            "sourceName": outage.source_name,
-            "sourceUrl": outage.source_url,
-            "externalId": outage.external_id,
+            "startTime": values["start_time"].isoformat() if hasattr(values["start_time"], "isoformat") else values["start_time"],
+            "endTime": values["end_time"].isoformat() if hasattr(values["end_time"], "isoformat") else values["end_time"],
+            "status": values["status"],
+            "sourceType": values["source_type"],
+            "sourceName": values["source_name"],
+            "sourceUrl": values["source_url"],
+            "externalId": values["external_id"],
         }
 
         headers = {

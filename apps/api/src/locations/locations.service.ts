@@ -22,16 +22,28 @@ export class LocationsService {
         cell?: string;
         village?: string;
     }) {
-        const existingLocation =
-            await this.locationsRepository.findOne({
+        const locationData = {
+            province: data.province,
+            district: data.district,
+            sector: data.sector ?? null,
+            cell: data.cell ?? null,
+            village: data.village ?? null,
+        };
+
+        const districtLocations =
+            await this.locationsRepository.find({
                 where: {
-                    province: data.province,
-                    district: data.district,
-                    sector: data.sector,
-                    cell: data.cell,
-                    village: data.village,
+                    province: locationData.province,
+                    district: locationData.district,
                 },
             });
+
+        const existingLocation = districtLocations.find(
+            (location) =>
+                (location.sector ?? null) === locationData.sector &&
+                (location.cell ?? null) === locationData.cell &&
+                (location.village ?? null) === locationData.village,
+        );
 
         if (existingLocation) {
             throw new ConflictException(
@@ -40,7 +52,7 @@ export class LocationsService {
         }
 
         const location =
-            this.locationsRepository.create(data);
+            this.locationsRepository.create(locationData);
 
         return this.locationsRepository.save(location);
     }
