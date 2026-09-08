@@ -15,8 +15,11 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+    it('should return the API health response', () => {
+      expect(appController.getHello()).toEqual({
+        message: 'Rwanda Utility Alerts API is running',
+        status: 'ok',
+      });
     });
   });
 });
