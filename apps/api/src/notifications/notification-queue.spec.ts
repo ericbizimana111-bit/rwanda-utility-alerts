@@ -39,8 +39,13 @@ describe('NotificationProcessor', () => {
             matchingUserCount: 2,
             notificationsCreated: 2,
             duplicatesSkipped: 0,
+            notifications: [{ id: 'notification-1' }, { id: 'notification-2' }],
         });
-        const processor = new NotificationProcessor({ createNotificationsForOutage } as any);
+        const deliverNotification = jest.fn().mockResolvedValue([{ status: 'sent' }]);
+        const processor = new NotificationProcessor(
+            { createNotificationsForOutage } as any,
+            { deliverNotification } as any,
+        );
 
         const result = await processor.process({
             id: 'job-1',
@@ -50,31 +55,57 @@ describe('NotificationProcessor', () => {
 
         expect(createNotificationsForOutage).toHaveBeenCalledWith(validOutageId);
         expect(result.notificationsCreated).toBe(2);
+        expect(deliverNotification).toHaveBeenCalledTimes(2);
     });
 
     it('handles a nonexistent outage without retrying a permanently invalid job', async () => {
         const createNotificationsForOutage = jest.fn().mockRejectedValue(
             new NotFoundException('Outage not found'),
         );
-        const processor = new NotificationProcessor({ createNotificationsForOutage } as any);
+        const processor = new NotificationProcessor(
+            { createNotificationsForOutage } as any,
+            { deliverNotification: jest.fn() } as any,
+        );
 
         const result = await processor.process({
             id: 'job-1',
             name: PROCESS_OUTAGE_NOTIFICATIONS_JOB,
-            data: { outageId: 'missing-outage' },
+            data: { outageId: '22222222-2222-4222-8222-222222222222' },
         } as any);
 
         expect(result).toEqual(expect.objectContaining({
-            outageId: 'missing-outage',
+            outageId: '22222222-2222-4222-8222-222222222222',
             skipped: true,
             notificationsCreated: 0,
         }));
     });
 
+    it('does not crash the worker when push delivery fails', async () => {
+        const createNotificationsForOutage = jest.fn().mockResolvedValue({
+            matchingUserCount: 1,
+            notificationsCreated: 1,
+            duplicatesSkipped: 0,
+            notifications: [{ id: 'notification-1' }],
+        });
+        const processor = new NotificationProcessor(
+            { createNotificationsForOutage } as any,
+            { deliverNotification: jest.fn().mockRejectedValue(new Error('provider unavailable')) } as any,
+        );
+
+        await expect(processor.process({
+            id: 'job-1',
+            name: PROCESS_OUTAGE_NOTIFICATIONS_JOB,
+            data: { outageId: validOutageId },
+        } as any)).resolves.toEqual(expect.objectContaining({ notificationsCreated: 1 }));
+    });
+
     it('rethrows transient failures so BullMQ can retry the job', async () => {
         const transientError = new Error('temporary database outage');
         const createNotificationsForOutage = jest.fn().mockRejectedValue(transientError);
-        const processor = new NotificationProcessor({ createNotificationsForOutage } as any);
+        const processor = new NotificationProcessor(
+            { createNotificationsForOutage } as any,
+            { deliverNotification: jest.fn() } as any,
+        );
 
         await expect(
             processor.process({
@@ -87,9 +118,13 @@ describe('NotificationProcessor', () => {
 
     it('supports duplicate jobs by delegating repeatedly to idempotent matching', async () => {
         const createNotificationsForOutage = jest.fn()
-            .mockResolvedValueOnce({ matchingUserCount: 1, notificationsCreated: 1, duplicatesSkipped: 0 })
-            .mockResolvedValueOnce({ matchingUserCount: 1, notificationsCreated: 0, duplicatesSkipped: 1 });
-        const processor = new NotificationProcessor({ createNotificationsForOutage } as any);
+            .mockResolvedValueOnce({ matchingUserCount: 1, notificationsCreated: 1, duplicatesSkipped: 0, notifications: [{ id: 'notification-1' }] })
+            .mockResolvedValueOnce({ matchingUserCount: 1, notificationsCreated: 0, duplicatesSkipped: 1, notifications: [] });
+        const deliverNotification = jest.fn().mockResolvedValue([{ status: 'sent' }]);
+        const processor = new NotificationProcessor(
+            { createNotificationsForOutage } as any,
+            { deliverNotification } as any,
+        );
         const job = {
             id: 'job-1',
             name: PROCESS_OUTAGE_NOTIFICATIONS_JOB,

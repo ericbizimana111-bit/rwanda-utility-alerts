@@ -13,6 +13,7 @@ import { Device } from '../devices/device.entity';
 import { NOTIFICATION_QUEUE_NAME } from './notification-queue.constants';
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationProcessor } from './notification.processor';
+import { PushNotificationService } from './push-notification.service';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { NotificationProcessor } from './notification.processor';
     NotificationsService,
     NotificationQueueService,
     NotificationProcessor,
+    PushNotificationService,
   ],
   exports: [NotificationsService, NotificationQueueService],
 })

@@ -39,7 +39,7 @@ export class Notification {
     @Column({ default: false })
     isRead: boolean;
 
-    @Column({ type: 'varchar', default: 'pending' })
+    @Column({ type: 'varchar', default: 'queued' })
     status: string;
 
     @Column({ type: 'timestamp', nullable: true })

@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 
 import { NotificationsService } from './notifications.service';
+import { PushNotificationService } from './push-notification.service';
 import {
     NOTIFICATION_QUEUE_NAME,
     PROCESS_OUTAGE_NOTIFICATIONS_JOB,
@@ -19,6 +20,7 @@ export class NotificationProcessor extends WorkerHost {
 
     constructor(
         private readonly notificationsService: NotificationsService,
+        private readonly pushNotificationService: PushNotificationService,
     ) {
         super();
     }
@@ -45,8 +47,18 @@ export class NotificationProcessor extends WorkerHost {
 
         try {
             const result = await this.notificationsService.createNotificationsForOutage(outageId);
+            let pushResults = 0;
+            for (const notification of result.notifications ?? []) {
+                try {
+                    pushResults += (await this.pushNotificationService.deliverNotification(notification.id)).length;
+                } catch (error) {
+                    this.logger.error(
+                        `push processing failed outageId=${outageId} notificationId=${notification.id}: ${(error as Error).message}`,
+                    );
+                }
+            }
             this.logger.log(
-                `notification job completed outageId=${outageId} matchedUsers=${result.matchingUserCount} notificationsCreated=${result.notificationsCreated} duplicatesSkipped=${result.duplicatesSkipped ?? 0}`,
+                `notification job completed outageId=${outageId} matchedUsers=${result.matchingUserCount} notificationsCreated=${result.notificationsCreated} pushResults=${pushResults} duplicatesSkipped=${result.duplicatesSkipped ?? 0}`,
             );
             return result;
         } catch (error) {

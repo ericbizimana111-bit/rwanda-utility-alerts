@@ -11,6 +11,7 @@ import {
 
 import { DevicesService } from './devices.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RegisterDeviceDto } from './dto/register-device.dto';
 
 @Controller('devices')
 @UseGuards(JwtAuthGuard)
@@ -22,11 +23,7 @@ export class DevicesController {
     @Post()
     async registerDevice(
         @Req() req: any,
-        @Body()
-        body: {
-            pushToken: string;
-            platform?: string;
-        },
+        @Body() body: RegisterDeviceDto,
     ) {
         return this.devicesService.registerDevice(
             req.user.id,

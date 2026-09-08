@@ -73,7 +73,7 @@ export class NotificationsService {
                 outageId,
                 title: outage.title,
                 message: this.buildMessage(outage),
-                status: 'pending',
+                status: 'queued',
                 isRead: false,
             });
 
@@ -223,6 +223,7 @@ export class NotificationsService {
         );
 
         const notifications: Notification[] = [];
+        let notificationsCreated = 0;
         let duplicatesSkipped = 0;
 
         for (const userId of matchingUserIds) {
@@ -235,6 +236,9 @@ export class NotificationsService {
 
             if (existing) {
                 duplicatesSkipped += 1;
+                if (existing.status !== 'sent') {
+                    notifications.push(existing);
+                }
                 continue;
             }
 
@@ -246,6 +250,9 @@ export class NotificationsService {
 
             if (notification) {
                 notifications.push(notification);
+                if (!existing) {
+                    notificationsCreated += 1;
+                }
             }
         }
 
@@ -253,7 +260,7 @@ export class NotificationsService {
             outageId,
             matchingSubscriptions: subscriptions.length,
             matchingUserCount: matchingUserIds.length,
-            notificationsCreated: notifications.length,
+            notificationsCreated,
             duplicatesSkipped,
             notifications,
         };
