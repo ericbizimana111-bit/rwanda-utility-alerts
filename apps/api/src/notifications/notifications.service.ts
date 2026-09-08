@@ -202,7 +202,9 @@ export class NotificationsService {
             return {
                 outageId,
                 matchingSubscriptions: 0,
+                matchingUserCount: 0,
                 notificationsCreated: 0,
+                duplicatesSkipped: 0,
                 notifications: [],
             };
         }
@@ -221,6 +223,7 @@ export class NotificationsService {
         );
 
         const notifications: Notification[] = [];
+        let duplicatesSkipped = 0;
 
         for (const userId of matchingUserIds) {
             const existing = await this.notificationsRepository.findOne({
@@ -231,6 +234,7 @@ export class NotificationsService {
             });
 
             if (existing) {
+                duplicatesSkipped += 1;
                 continue;
             }
 
@@ -248,7 +252,9 @@ export class NotificationsService {
         return {
             outageId,
             matchingSubscriptions: subscriptions.length,
+            matchingUserCount: matchingUserIds.length,
             notificationsCreated: notifications.length,
+            duplicatesSkipped,
             notifications,
         };
     }

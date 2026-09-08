@@ -11,7 +11,7 @@ import { Outage } from './outage.entity';
 import { OutageLocation } from './outage-location.entity';
 import { Utility } from '../utilities/utility.entity';
 import { Location } from '../locations/location.entity';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationQueueService } from '../notifications/notification-queue.service';
 
 @Injectable()
 export class OutagesService {
@@ -30,7 +30,7 @@ export class OutagesService {
         @InjectRepository(Location)
         private readonly locationsRepository: Repository<Location>,
 
-        private readonly notificationsService: NotificationsService,
+        private readonly notificationQueueService: NotificationQueueService,
     ) { }
 
     private normalizeStatus(status?: string) {
@@ -123,7 +123,7 @@ export class OutagesService {
             );
         }
 
-        await this.notificationsService.createNotificationsForOutage(savedOutage.id);
+        await this.notificationQueueService.enqueueOutageNotification(savedOutage.id);
 
         return this.outagesRepository.findOne({
             where: { id: savedOutage.id },

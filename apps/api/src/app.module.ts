@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { BullModule } from '@nestjs/bullmq';
+import { ConfigService } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { UsersModule } from './users/users.module';
 import { LocationsModule } from './locations/locations.module';
@@ -28,6 +30,18 @@ import { AdminModule } from './admin/admin.module';
         limit: 20,
       },
     ]),
+
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          host: config.get<string>('REDIS_HOST', 'localhost'),
+          port: Number(config.get<string>('REDIS_PORT', '6379')),
+          password: config.get<string>('REDIS_PASSWORD') || undefined,
+          db: Number(config.get<string>('REDIS_DB', '0')),
+        },
+      }),
+    }),
 
     TypeOrmModule.forRoot({
       type: 'postgres',

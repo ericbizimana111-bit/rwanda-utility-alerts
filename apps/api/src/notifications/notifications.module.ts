@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BullModule } from '@nestjs/bullmq';
 
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
@@ -9,9 +10,13 @@ import { User } from '../users/user.entity';
 import { Outage } from '../outages/outage.entity';
 import { Subscription } from '../subscriptions/subscription.entity';
 import { Device } from '../devices/device.entity';
+import { NOTIFICATION_QUEUE_NAME } from './notification-queue.constants';
+import { NotificationQueueService } from './notification-queue.service';
+import { NotificationProcessor } from './notification.processor';
 
 @Module({
   imports: [
+    BullModule.registerQueue({ name: NOTIFICATION_QUEUE_NAME }),
     TypeOrmModule.forFeature([
       Notification,
       User,
@@ -21,7 +26,11 @@ import { Device } from '../devices/device.entity';
     ]),
   ],
   controllers: [NotificationsController],
-  providers: [NotificationsService],
-  exports: [NotificationsService],
+  providers: [
+    NotificationsService,
+    NotificationQueueService,
+    NotificationProcessor,
+  ],
+  exports: [NotificationsService, NotificationQueueService],
 })
 export class NotificationsModule { }
