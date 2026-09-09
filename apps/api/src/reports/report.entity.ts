@@ -6,12 +6,16 @@ import {
     JoinColumn,
     CreateDateColumn,
     UpdateDateColumn,
+    Index,
 } from 'typeorm';
 import { User } from '../users/user.entity';
 import { Location } from '../locations/location.entity';
 import { Utility } from '../utilities/utility.entity';
 
 @Entity('reports')
+@Index(['userId'])
+@Index(['status'])
+@Index(['utilityId', 'locationId', 'createdAt'])
 export class Report {
     @PrimaryGeneratedColumn('uuid')
     id: string;

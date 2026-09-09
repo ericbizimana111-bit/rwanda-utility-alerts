@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 const TOKEN_KEY = 'rwanda-utility-alerts.access-token';
+const DEVICE_KEY = 'rwanda-utility-alerts.device-id';
 
 export type ApiUser = {
     id: string;
@@ -64,10 +65,21 @@ export const api = {
         await AsyncStorage.removeItem(TOKEN_KEY);
     },
     async registerDevice(pushToken: string, platform: 'android' | 'ios') {
-        return request('/devices', {
+        const result = await request<{ id?: string }>('/devices', {
             method: 'POST',
             body: JSON.stringify({ pushToken, platform }),
         });
+        if (result.id) await AsyncStorage.setItem(DEVICE_KEY, result.id);
+        return result;
+    },
+    async unregisterDevice() {
+        const deviceId = await AsyncStorage.getItem(DEVICE_KEY);
+        if (!deviceId) return;
+        try {
+            await request(`/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
+        } finally {
+            await AsyncStorage.removeItem(DEVICE_KEY);
+        }
     },
     getOutage(id: string) {
         return request<Outage>(`/outages/${encodeURIComponent(id)}`);

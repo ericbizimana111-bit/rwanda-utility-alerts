@@ -42,6 +42,16 @@ export async function registerForPushNotifications(): Promise<string | null> {
     }
 }
 
+export function subscribeToPushTokenChanges(onToken: (token: string) => void) {
+    return Notifications.addPushTokenListener((event) => {
+        if (/^(Expo(nent)?PushToken)\[[^\]]+\]$/.test(event.data)) onToken(event.data);
+    });
+}
+
+export function registerPushToken(token: string) {
+    return api.registerDevice(token, Platform.OS === 'ios' ? 'ios' : 'android');
+}
+
 export function parseNotificationResponse(response: Notifications.NotificationResponse) {
     return parseOutageNotificationData(response.notification.request.content.data);
 }

@@ -20,10 +20,7 @@
             "expo-notifications"
         ],
         "extra": {
-            "apiUrl": "http://localhost:3000",
-            "eas": {
-                "projectId": "${EXPO_PUBLIC_EAS_PROJECT_ID}"
-            }
+            "apiUrl": "http://localhost:3000"
         }
     }
 }

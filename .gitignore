@@ -1,0 +1,15 @@
+node_modules/
+.venv/
+.env
+.env.*
+!.env.example
+
+dist/
+build/
+.expo/
+.next/
+coverage/
+
+*.log
+
+tmp_*.sql
