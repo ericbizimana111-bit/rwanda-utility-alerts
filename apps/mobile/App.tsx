@@ -5,7 +5,13 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuthStore } from './src/auth/store';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
+import { SignUpScreen } from './src/screens/SignUpScreen';
 import { OutageDetailsScreen } from './src/screens/OutageDetailsScreen';
+import { OutagesScreen } from './src/screens/OutagesScreen';
+import { SubscriptionsScreen } from './src/screens/SubscriptionsScreen';
+import { ReportCreateScreen } from './src/screens/ReportCreateScreen';
+import { ReportsScreen } from './src/screens/ReportsScreen';
+import { NotificationsScreen } from './src/screens/NotificationsScreen';
 import { parseNotificationResponse } from './src/notifications/service';
 import { RootStackParamList } from './src/navigation/types';
 
@@ -61,9 +67,17 @@ export default function App() {
                     <>
                         <Stack.Screen name="Home" component={HomeScreen} />
                         <Stack.Screen name="OutageDetails" component={OutageDetailsScreen} options={{ title: 'Outage details' }} />
+                        <Stack.Screen name="Outages" component={OutagesScreen} />
+                        <Stack.Screen name="Subscriptions" component={SubscriptionsScreen} />
+                        <Stack.Screen name="ReportCreate" component={ReportCreateScreen} />
+                        <Stack.Screen name="Reports" component={ReportsScreen} />
+                        <Stack.Screen name="Notifications" component={NotificationsScreen} />
                     </>
                 ) : (
-                    <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+                    <>
+                        <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+                        <Stack.Screen name="SignUp" component={SignUpScreen} options={{ headerShown: false }} />
+                    </>
                 )}
             </Stack.Navigator>
         </NavigationContainer>

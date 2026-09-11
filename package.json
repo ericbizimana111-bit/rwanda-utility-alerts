@@ -2,7 +2,7 @@
   "name": "rwanda-utility-alerts",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "expo-router/entry",
   "directories": {
     "doc": "docs"
   },
@@ -11,5 +11,15 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "expo": "^57.0.21",
+    "expo-router": "~57.0.20",
+    "react": "19.2.3",
+    "react-native": "0.86.3"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.4",
+    "typescript": "~6.0.3"
+  }
 }

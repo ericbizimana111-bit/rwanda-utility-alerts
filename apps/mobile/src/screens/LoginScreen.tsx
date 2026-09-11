@@ -6,7 +6,7 @@ import { useAuthStore } from '../auth/store';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
-export function LoginScreen({ }: Props) {
+export function LoginScreen({ navigation }: Props) {
     const signIn = useAuthStore((state) => state.signIn);
     const [phone, setPhone] = useState('');
     const [password, setPassword] = useState('');
@@ -34,6 +34,7 @@ export function LoginScreen({ }: Props) {
                 <TextInput secureTextEntry placeholder="Password" value={password} onChangeText={setPassword} style={styles.input} />
                 {error ? <Text style={styles.error}>{error}</Text> : null}
                 {busy ? <ActivityIndicator /> : <Button title="Sign in" onPress={submit} disabled={!phone || !password} />}
+                <Button title="Create an account" onPress={() => navigation.navigate('SignUp')} />
             </View>
         </SafeAreaView>
     );
