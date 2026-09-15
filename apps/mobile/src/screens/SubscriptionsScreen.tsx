@@ -17,26 +17,28 @@ import { BottomNavigation } from '../components/BottomNavigation';
 import { SubscriptionCard } from '../components/SubscriptionCard';
 import { LoadingState } from '../components/LoadingState';
 import { EmptyState } from '../components/EmptyState';
+import { ErrorState } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
-import { api, Subscription } from '../api/client';
+import { api, ApiError, Subscription } from '../api/client';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Subscriptions'>;
-type TabType = 'my' | 'available';
 
 export function SubscriptionsScreen({ navigation }: Props) {
-    const [activeTab, setActiveTab] = useState<TabType>('my');
     const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [selectedSub, setSelectedSub] = useState<Subscription | null>(null);
     const [deleting, setDeleting] = useState(false);
+    const [actionError, setActionError] = useState<string | null>(null);
 
     const loadSubscriptions = useCallback(async () => {
         setLoading(true);
+        setError(null);
         try {
             const data = await api.getSubscriptions();
             setSubscriptions(data);
-        } catch {
-            // Keep state
+        } catch (err) {
+            setError(err instanceof ApiError ? err.message : 'Unable to load your subscriptions.');
         } finally {
             setLoading(false);
         }
@@ -53,12 +55,15 @@ export function SubscriptionsScreen({ navigation }: Props) {
     async function handleRemoveSubscription() {
         if (!selectedSub) return;
         setDeleting(true);
+        setActionError(null);
         try {
             await api.deleteSubscription(selectedSub.id);
             setSubscriptions((prev) => prev.filter((s) => s.id !== selectedSub.id));
             setSelectedSub(null);
         } catch (err) {
-            console.error('Failed to remove subscription:', err);
+            setActionError(
+                err instanceof ApiError ? err.message : 'Unable to remove this subscription right now.'
+            );
         } finally {
             setDeleting(false);
         }
@@ -73,31 +78,17 @@ export function SubscriptionsScreen({ navigation }: Props) {
             />
 
             <View style={styles.container}>
-                {/* Tabs: My Subscriptions / Available */}
-                <View style={styles.tabBar}>
-                    <Pressable
-                        style={[styles.tabButton, activeTab === 'my' && styles.tabButtonActive]}
-                        onPress={() => setActiveTab('my')}
-                    >
-                        <Text style={[styles.tabText, activeTab === 'my' && styles.tabTextActive]}>
-                            My Subscriptions ({subscriptions.length})
-                        </Text>
-                    </Pressable>
-
-                    <Pressable
-                        style={[styles.tabButton, activeTab === 'available' && styles.tabButtonActive]}
-                        onPress={() => setActiveTab('available')}
-                    >
-                        <Text style={[styles.tabText, activeTab === 'available' && styles.tabTextActive]}>
-                            Available
-                        </Text>
-                    </Pressable>
-                </View>
-
                 {/* Subscriptions List */}
                 {loading ? (
                     <LoadingState message="Loading subscriptions..." />
-                ) : activeTab === 'my' && subscriptions.length === 0 ? (
+                ) : error ? (
+                    <ErrorState
+                        title="Unable to load subscriptions"
+                        description={error}
+                        buttonTitle="Retry"
+                        onRetry={() => void loadSubscriptions()}
+                    />
+                ) : subscriptions.length === 0 ? (
                     <EmptyState
                         title="No subscriptions yet"
                         description="Subscribe to your home or office neighborhood to receive outage alerts."
@@ -151,6 +142,8 @@ export function SubscriptionsScreen({ navigation }: Props) {
                             Do you want to stop receiving utility outage alerts for this location?
                         </Text>
 
+                        {actionError ? <Text style={styles.actionErrorText}>{actionError}</Text> : null}
+
                         <View style={styles.modalActionsRow}>
                             <Pressable
                                 style={styles.cancelBtn}
@@ -197,32 +190,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: colors.background,
-    },
-    tabBar: {
-        flexDirection: 'row',
-        backgroundColor: '#FFFFFF',
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-    },
-    tabButton: {
-        flex: 1,
-        paddingVertical: 14,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderBottomWidth: 2.5,
-        borderBottomColor: 'transparent',
-    },
-    tabButtonActive: {
-        borderBottomColor: colors.primary,
-    },
-    tabText: {
-        fontSize: 14,
-        fontWeight: '500',
-        color: colors.textSecondary,
-    },
-    tabTextActive: {
-        color: colors.primary,
-        fontWeight: '700',
     },
     content: {
         flex: 1,
@@ -323,5 +290,9 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '700',
         color: '#FFFFFF',
+    },
+    actionErrorText: {
+        color: colors.alertRed,
+        fontSize: 13,
     },
 });

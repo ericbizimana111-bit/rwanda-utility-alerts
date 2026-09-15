@@ -15,8 +15,10 @@ import { AppHeader } from '../components/AppHeader';
 import { BottomNavigation } from '../components/BottomNavigation';
 import { OutageCard } from '../components/OutageCard';
 import { Icon, IconName } from '../components/Icon';
+import { ErrorState } from '../components/ErrorState';
 import { api, Outage, Subscription, NotificationItem } from '../api/client';
 import { useAuthStore } from '../auth/store';
+import { formatRelativeTime } from '../utils/format';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
@@ -36,23 +38,30 @@ export function HomeScreen({ navigation }: Props) {
     const [activeOutages, setActiveOutages] = useState<Outage[]>([]);
     const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
     const [recentAlerts, setRecentAlerts] = useState<NotificationItem[]>([]);
+    const [unreadCount, setUnreadCount] = useState(0);
     const [refreshing, setRefreshing] = useState(false);
+    const [loadError, setLoadError] = useState(false);
 
     const loadCustomerData = useCallback(async () => {
-        try {
-            const [upcoming, active, subs, notifs] = await Promise.allSettled([
-                api.getUpcomingOutages(),
-                api.getActiveOutages(),
-                api.getSubscriptions(),
-                api.getNotificationList(),
-            ]);
+        setLoadError(false);
+        const [upcoming, active, subs, notifs] = await Promise.allSettled([
+            api.getUpcomingOutages(),
+            api.getActiveOutages(),
+            api.getSubscriptions(),
+            api.getNotificationList(),
+        ]);
 
-            if (upcoming.status === 'fulfilled') setUpcomingOutages(upcoming.value);
-            if (active.status === 'fulfilled') setActiveOutages(active.value);
-            if (subs.status === 'fulfilled') setSubscriptions(subs.value);
-            if (notifs.status === 'fulfilled') setRecentAlerts(notifs.value.slice(0, 2));
-        } catch {
-            // Keep current state
+        // Notifications failing usually means an auth problem; surface a real
+        // error state instead of silently showing an empty dashboard.
+        if (notifs.status === 'rejected') {
+            setLoadError(true);
+        }
+        if (upcoming.status === 'fulfilled') setUpcomingOutages(upcoming.value);
+        if (active.status === 'fulfilled') setActiveOutages(active.value);
+        if (subs.status === 'fulfilled') setSubscriptions(subs.value);
+        if (notifs.status === 'fulfilled') {
+            setRecentAlerts(notifs.value.slice(0, 2));
+            setUnreadCount(notifs.value.filter((n) => !n.isRead).length);
         }
     }, []);
 
@@ -111,6 +120,27 @@ export function HomeScreen({ navigation }: Props) {
 
     const customerName = user?.firstName || 'Resident';
 
+    if (loadError) {
+        return (
+            <SafeAreaView style={styles.safeArea}>
+                <AppHeader
+                    showBrand
+                    avatarLetter={customerName.charAt(0).toUpperCase()}
+                    onBellPress={() => navigation.navigate('Notifications')}
+                    onProfilePress={() => navigation.navigate('Profile')}
+                />
+                <View style={styles.errorContainer}>
+                    <ErrorState
+                        title="Unable to load your data"
+                        description="We couldn't reach the server. Check your connection and try again."
+                        buttonTitle="Retry"
+                        onRetry={() => void loadCustomerData()}
+                    />
+                </View>
+            </SafeAreaView>
+        );
+    }
+
     return (
         <SafeAreaView style={styles.safeArea}>
             <AppHeader
@@ -119,6 +149,7 @@ export function HomeScreen({ navigation }: Props) {
                 avatarLetter={(user?.firstName || 'Resident').charAt(0).toUpperCase()}
                 onBellPress={() => navigation.navigate('Notifications')}
                 onProfilePress={() => navigation.navigate('Profile')}
+                unreadBadge={unreadCount}
             />
 
             <ScrollView
@@ -284,7 +315,9 @@ export function HomeScreen({ navigation }: Props) {
                                         <Text style={styles.alertPreviewMsg}>{alert.message}</Text>
                                     </View>
                                 </View>
-                                <Text style={styles.alertPreviewTime}>{alert.createdAt}</Text>
+                                <Text style={styles.alertPreviewTime}>
+                                    {formatRelativeTime(alert.createdAt) ?? ''}
+                                </Text>
                             </Pressable>
                         ))}
                     </View>
@@ -308,6 +341,10 @@ const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
         backgroundColor: colors.headerBg,
+    },
+    errorContainer: {
+        flex: 1,
+        backgroundColor: colors.background,
     },
     container: {
         flex: 1,

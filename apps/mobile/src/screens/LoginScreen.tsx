@@ -22,8 +22,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 export function LoginScreen({ navigation }: Props) {
     const signIn = useAuthStore((state) => state.signIn);
-    const [phone, setPhone] = useState('0780000000');
-    const [password, setPassword] = useState('password123');
+    const [phone, setPhone] = useState('');
+    const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);

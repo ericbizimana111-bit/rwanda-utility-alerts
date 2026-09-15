@@ -14,7 +14,18 @@ const getBaseUrl = () => {
 const API_URL = getBaseUrl();
 const TOKEN_KEY = 'rwanda-utility-alerts.access-token';
 const DEVICE_KEY = 'rwanda-utility-alerts.device-id';
+const DEVICE_TOKEN_KEY = 'rwanda-utility-alerts.device-token';
 const USER_KEY = 'rwanda-utility-alerts.cached-user';
+
+export class ApiError extends Error {
+    status: number;
+
+    constructor(status: number, message: string) {
+        super(message);
+        this.name = 'ApiError';
+        this.status = status;
+    }
+}
 
 export type ApiUser = {
     id: string;
@@ -100,6 +111,11 @@ export type NotificationItem = {
     outage?: Outage;
 };
 
+export type DeviceRegistrationResult = {
+    deviceId: string;
+    pushToken: string;
+};
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const token = await AsyncStorage.getItem(TOKEN_KEY);
     const controller = new AbortController();
@@ -118,8 +134,21 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
         clearTimeout(timeout);
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => '');
-            throw new Error(`API request failed (${response.status}): ${errorBody}`);
+            let message = `API request failed (${response.status})`;
+            if (response.status === 401) {
+                message = 'Your session has expired. Please sign in again.';
+            } else {
+                const errorBody = await response.text().catch(() => '');
+                try {
+                    const parsed = JSON.parse(errorBody) as { message?: string | string[] };
+                    const rawMessage = parsed.message;
+                    const text = Array.isArray(rawMessage) ? rawMessage.join(', ') : rawMessage;
+                    if (text) message = text;
+                } catch {
+                    if (errorBody) message = `${message}: ${errorBody.slice(0, 200)}`;
+                }
+            }
+            throw new ApiError(response.status, message);
         }
         return (await response.json()) as T;
     } catch (err) {
@@ -140,15 +169,13 @@ export const api = {
     },
 
     async register(phone: string, password: string, firstName: string, lastName: string, email?: string) {
-        const result = await request<{ message: string; user: ApiUser }>('/auth/register', {
+        await request<{ message: string; user: ApiUser }>('/auth/register', {
             method: 'POST',
             body: JSON.stringify({ phone, password, firstName, lastName, email: email || undefined }),
         });
-        if (result.user) {
-            // Automatically log in or cache
-            await AsyncStorage.setItem(USER_KEY, JSON.stringify(result.user));
-        }
-        return result;
+        // Registration does not return a token: sign in immediately with the
+        // real credentials so the session is a genuine authenticated one.
+        return this.login(phone, password);
     },
 
     async restoreSession(): Promise<ApiUser | null> {
@@ -159,14 +186,10 @@ export const api = {
             await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
             return user;
         } catch {
-            const cached = await AsyncStorage.getItem(USER_KEY);
-            if (cached) {
-                try {
-                    return JSON.parse(cached) as ApiUser;
-                } catch {
-                    return null;
-                }
-            }
+            // The token is no longer valid: clear it so the next run starts
+            // from a clean unauthenticated state instead of retrying forever.
+            await AsyncStorage.removeItem(TOKEN_KEY);
+            await AsyncStorage.removeItem(USER_KEY);
             return null;
         }
     },
@@ -176,19 +199,18 @@ export const api = {
         await AsyncStorage.removeItem(USER_KEY);
     },
 
-    async registerDevice(pushToken: string, platform: 'android' | 'ios') {
-        try {
-            const result = await request<{ id?: string }>('/devices', {
-                method: 'POST',
-                body: JSON.stringify({ pushToken, platform }),
-            });
-            if (result.id) await AsyncStorage.setItem(DEVICE_KEY, result.id);
-            return result;
-        } catch {
-            const fallbackId = 'device-' + Date.now();
-            await AsyncStorage.setItem(DEVICE_KEY, fallbackId);
-            return { id: fallbackId };
+    async registerDevice(pushToken: string, platform: 'android' | 'ios'): Promise<DeviceRegistrationResult> {
+        const result = await request<{ id?: string }>('/devices', {
+            method: 'POST',
+            body: JSON.stringify({ pushToken, platform }),
+        });
+        const deviceId = result.id ?? null;
+        if (!deviceId) {
+            throw new ApiError(0, 'Device registration response did not include a device ID.');
         }
+        await AsyncStorage.setItem(DEVICE_KEY, deviceId);
+        await AsyncStorage.setItem(DEVICE_TOKEN_KEY, pushToken);
+        return { deviceId, pushToken };
     },
 
     async unregisterDevice() {
@@ -197,9 +219,11 @@ export const api = {
         try {
             await request(`/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
         } catch {
-            // Ignore offline error
+            // Removing the local record is still correct if the backend call
+            // fails (e.g. offline); the device can be re-registered later.
         } finally {
             await AsyncStorage.removeItem(DEVICE_KEY);
+            await AsyncStorage.removeItem(DEVICE_TOKEN_KEY);
         }
     },
 
@@ -260,6 +284,13 @@ export const api = {
         });
     },
 
+    async updateReport(id: string, description: string) {
+        return request<Report>(`/reports/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ description }),
+        });
+    },
+
     async getNotificationList() {
         const result = await request<NotificationItem[] | { data: NotificationItem[] }>('/notifications');
         return Array.isArray(result) ? result : result.data || [];
@@ -269,4 +300,34 @@ export const api = {
         await request(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' });
         return id;
     },
+
+    async getStoredDeviceId() {
+        return AsyncStorage.getItem(DEVICE_KEY);
+    },
+
+    async getStoredDeviceToken() {
+        return AsyncStorage.getItem(DEVICE_TOKEN_KEY);
+    },
+
+    async clearStoredDevice() {
+        await AsyncStorage.removeItem(DEVICE_KEY);
+        await AsyncStorage.removeItem(DEVICE_TOKEN_KEY);
+    },
+
+    get apiUrl() {
+        return API_URL;
+    },
 };
+
+export { DEVICE_TOKEN_KEY };
+
+export function extractOutageAreas(outage: Outage): string[] {
+    const areas = (outage.outageLocations ?? [])
+        .map(({ location }) => {
+            const parts = [location?.district, location?.sector, location?.cell]
+                .filter((part): part is string => Boolean(part));
+            return parts.join(' - ');
+        })
+        .filter(Boolean);
+    return Array.from(new Set(areas));
+}

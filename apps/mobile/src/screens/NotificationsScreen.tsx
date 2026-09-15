@@ -15,7 +15,9 @@ import { BottomNavigation } from '../components/BottomNavigation';
 import { NotificationCard } from '../components/NotificationCard';
 import { LoadingState } from '../components/LoadingState';
 import { EmptyState } from '../components/EmptyState';
-import { api, NotificationItem } from '../api/client';
+import { ErrorState } from '../components/ErrorState';
+import { api, ApiError, NotificationItem } from '../api/client';
+import { formatRelativeTime } from '../utils/format';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Notifications'>;
 type TabType = 'all' | 'unread' | 'read';
@@ -24,13 +26,16 @@ export function NotificationsScreen({ navigation }: Props) {
     const [activeTab, setActiveTab] = useState<TabType>('all');
     const [items, setItems] = useState<NotificationItem[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     async function loadNotifications() {
+        setLoading(true);
+        setError(null);
         try {
             const data = await api.getNotificationList();
             setItems(data);
-        } catch {
-            // Handled
+        } catch (err) {
+            setError(err instanceof ApiError ? err.message : 'Unable to load your notifications.');
         } finally {
             setLoading(false);
         }
@@ -48,12 +53,19 @@ export function NotificationsScreen({ navigation }: Props) {
 
     async function handleNotificationPress(item: NotificationItem) {
         if (!item.isRead) {
-            await api.markNotificationRead(item.id);
-            setItems((prev) =>
-                prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
-            );
+            try {
+                await api.markNotificationRead(item.id);
+                setItems((prev) =>
+                    prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
+                );
+            } catch {
+                // Marking as read failed; the notification stays unread and can
+                // be tapped again. Navigation still proceeds.
+            }
         }
-        if (item.outageId && item.outageId.startsWith('outage-')) {
+        // Any notification tied to a real outage opens that outage. Real IDs
+        // are UUIDs, so no format sniffing is needed.
+        if (item.outageId) {
             navigation.navigate('OutageDetails', { outageId: item.outageId });
         }
     }
@@ -100,6 +112,13 @@ export function NotificationsScreen({ navigation }: Props) {
                 {/* Notifications List */}
                 {loading ? (
                     <LoadingState message="Loading alerts..." />
+                ) : error ? (
+                    <ErrorState
+                        title="Unable to load alerts"
+                        description={error}
+                        buttonTitle="Retry"
+                        onRetry={() => void loadNotifications()}
+                    />
                 ) : filteredItems.length === 0 ? (
                     <EmptyState
                         title="No notifications"

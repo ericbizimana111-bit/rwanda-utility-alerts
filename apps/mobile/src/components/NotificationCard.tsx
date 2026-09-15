@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { colors } from '../theme/colors';
 import { Icon, IconName } from './Icon';
 import { NotificationItem } from '../api/client';
+import { formatRelativeTime } from '../utils/format';
 
 interface NotificationCardProps {
     notification: NotificationItem;
@@ -10,34 +11,29 @@ interface NotificationCardProps {
 }
 
 export function NotificationCard({ notification, onPress }: NotificationCardProps) {
-    // Determine icon and colors based on title/message content
+    // Icon is derived from the real notification title only (generic fallback).
     let iconName: IconName = 'bell';
     let iconColor = colors.primary;
     let iconBg = colors.alertBlueBg;
 
     const titleLower = notification.title.toLowerCase();
-    const msgLower = notification.message.toLowerCase();
 
-    if (titleLower.includes('new outage alert') && msgLower.includes('rwamagana')) {
-        iconName = 'lightning';
-        iconColor = colors.alertPurple;
-        iconBg = colors.alertPurpleBg;
-    } else if (titleLower.includes('new outage alert')) {
-        iconName = 'lightning';
-        iconColor = colors.alertRed;
-        iconBg = colors.alertRedBg;
-    } else if (titleLower.includes('outage update')) {
-        iconName = 'water';
-        iconColor = colors.alertBlue;
-        iconBg = colors.alertBlueBg;
-    } else if (titleLower.includes('service restored')) {
+    if (titleLower.includes('restored')) {
         iconName = 'check';
         iconColor = colors.alertGreen;
         iconBg = colors.alertGreenBg;
+    } else if (titleLower.includes('update')) {
+        iconName = 'water';
+        iconColor = colors.alertBlue;
+        iconBg = colors.alertBlueBg;
     } else if (titleLower.includes('report')) {
         iconName = 'clock';
         iconColor = colors.alertYellow;
         iconBg = colors.alertYellowBg;
+    } else if (titleLower.includes('outage') || titleLower.includes('alert')) {
+        iconName = 'lightning';
+        iconColor = colors.alertRed;
+        iconBg = colors.alertRedBg;
     }
 
     return (
@@ -53,7 +49,7 @@ export function NotificationCard({ notification, onPress }: NotificationCardProp
                 <View style={styles.contentCol}>
                     <Text style={styles.title}>{notification.title}</Text>
                     <Text style={styles.message}>{notification.message}</Text>
-                    <Text style={styles.time}>{notification.createdAt}</Text>
+                    <Text style={styles.time}>{formatRelativeTime(notification.createdAt) ?? ''}</Text>
                 </View>
             </View>
 

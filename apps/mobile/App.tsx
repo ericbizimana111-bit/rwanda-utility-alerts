@@ -15,7 +15,6 @@ import { ReportCreateScreen } from './src/screens/ReportCreateScreen';
 import { NotificationsScreen } from './src/screens/NotificationsScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { DeviceRegistrationScreen } from './src/screens/DeviceRegistrationScreen';
-import { DemoStatesScreen } from './src/screens/DemoStatesScreen';
 import { parseNotificationResponse } from './src/notifications/service';
 import { RootStackParamList } from './src/navigation/types';
 
@@ -83,7 +82,6 @@ export default function App() {
                         <Stack.Screen name="Notifications" component={NotificationsScreen} />
                         <Stack.Screen name="Profile" component={ProfileScreen} />
                         <Stack.Screen name="DeviceRegistration" component={DeviceRegistrationScreen} />
-                        <Stack.Screen name="DemoStates" component={DemoStatesScreen} />
                     </>
                 ) : (
                     <>

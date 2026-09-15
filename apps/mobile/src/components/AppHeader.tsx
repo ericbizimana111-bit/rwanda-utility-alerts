@@ -15,6 +15,7 @@ interface AppHeaderProps {
     onBellPress?: () => void;
     onProfilePress?: () => void;
     rightIcon?: React.ReactNode;
+    unreadBadge?: number;
 }
 
 export function AppHeader({
@@ -27,6 +28,7 @@ export function AppHeader({
     onBellPress,
     onProfilePress,
     rightIcon,
+    unreadBadge = 0,
 }: AppHeaderProps) {
     const insets = useSafeAreaInsets();
     const topInset = Math.max(insets.top, Platform.OS === 'android' ? 12 : 16);
@@ -62,7 +64,7 @@ export function AppHeader({
                         <View style={styles.actionsRow}>
                             <Pressable onPress={onBellPress} style={styles.actionBtn} hitSlop={10}>
                                 <Icon name="bell" size={20} color="#FFFFFF" />
-                                <View style={styles.bellBadge} />
+                                {unreadBadge > 0 ? <View style={styles.bellBadge} /> : null}
                             </Pressable>
                             <Pressable onPress={onProfilePress} style={styles.avatarCircle} hitSlop={6}>
                                 <Text style={styles.avatarText}>{avatarLetter || 'U'}</Text>

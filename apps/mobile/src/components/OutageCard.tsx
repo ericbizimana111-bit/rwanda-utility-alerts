@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { colors } from '../theme/colors';
 import { Icon } from './Icon';
 import { Outage } from '../api/client';
+import { formatTimeRange } from '../utils/format';
 
 interface OutageCardProps {
     outage: Outage;
@@ -15,8 +16,18 @@ export function OutageCard({ outage, onPress }: OutageCardProps) {
     const iconBg = isWater ? colors.waterBg : colors.electricityBg;
     const iconName = isWater ? 'water' : 'lightning';
 
-    // Format timing
-    const timeDisplay = [outage.startTime, outage.endTime].filter(Boolean).join(' - ');
+    const statusLower = outage.status?.toLowerCase() ?? '';
+    const statusText =
+        statusLower.includes('active') || statusLower.includes('ongoing')
+            ? 'Active Outage'
+            : statusLower.includes('cancel')
+              ? 'Cancelled'
+              : statusLower.includes('resolved') || statusLower.includes('complete')
+                ? 'Resolved'
+                : 'Scheduled Outage';
+
+    // Real start/end times from the API (ISO strings), formatted for display.
+    const timeDisplay = formatTimeRange(outage.startTime, outage.endTime);
 
     return (
         <Pressable
@@ -29,8 +40,8 @@ export function OutageCard({ outage, onPress }: OutageCardProps) {
                 </View>
                 <View style={styles.infoCol}>
                     <Text style={styles.title}>{outage.title}</Text>
-                    <Text style={styles.status}>{outage.status || 'Scheduled Outage'}</Text>
-                    <Text style={styles.time}>{timeDisplay || 'Schedule to be announced'}</Text>
+                    <Text style={styles.status}>{statusText}</Text>
+                    <Text style={styles.time}>{timeDisplay ?? 'Schedule to be announced'}</Text>
                 </View>
             </View>
 

@@ -12,5 +12,4 @@ export type RootStackParamList = {
     Notifications: undefined;
     Profile: undefined;
     DeviceRegistration: undefined;
-    DemoStates: { mode?: 'all' | 'push' | 'loading' | 'empty' | 'error' } | undefined;
 };

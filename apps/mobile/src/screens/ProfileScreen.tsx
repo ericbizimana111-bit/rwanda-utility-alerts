@@ -7,7 +7,6 @@ import {
     Pressable,
     SafeAreaView,
     Modal,
-    Switch,
     ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -30,12 +29,11 @@ interface MenuItem {
 export function ProfileScreen({ navigation }: Props) {
     const user = useAuthStore((state) => state.user);
     const signOut = useAuthStore((state) => state.signOut);
+    const pushStatus = useAuthStore((state) => state.pushStatus);
 
     const [logoutModalVisible, setLogoutModalVisible] = useState(false);
     const [loggingOut, setLoggingOut] = useState(false);
     const [settingsModal, setSettingsModal] = useState(false);
-    const [pushEnabled, setPushEnabled] = useState(true);
-    const [smsEnabled, setSmsEnabled] = useState(true);
     const [aboutModal, setAboutModal] = useState(false);
     const [helpModal, setHelpModal] = useState(false);
 
@@ -106,9 +104,13 @@ export function ProfileScreen({ navigation }: Props) {
                     <Text style={styles.userName}>{fullName}</Text>
                     <Text style={styles.userPhone}>{user?.phone || 'No phone registered'}</Text>
                     {user?.email ? <Text style={styles.userEmail}>{user.email}</Text> : null}
-                    <View style={styles.residentBadge}>
-                        <Text style={styles.residentText}>Verified Resident</Text>
-                    </View>
+                    {user?.role ? (
+                        <View style={styles.residentBadge}>
+                            <Text style={styles.residentText}>
+                                {user.role === 'ADMIN' ? 'Administrator' : 'Resident Account'}
+                            </Text>
+                        </View>
+                    ) : null}
                 </View>
 
                 {/* Customer Menu List */}
@@ -189,20 +191,17 @@ export function ProfileScreen({ navigation }: Props) {
                         </View>
                         <View style={styles.settingRow}>
                             <Text style={styles.settingLabel}>Push Notifications</Text>
-                            <Switch
-                                value={pushEnabled}
-                                onValueChange={setPushEnabled}
-                                trackColor={{ true: colors.primary, false: colors.border }}
-                            />
+                            <Text style={styles.settingValue}>
+                                {pushStatus === 'registered'
+                                    ? 'Enabled on this device'
+                                    : 'Not enabled on this device'}
+                            </Text>
                         </View>
-                        <View style={styles.settingRow}>
-                            <Text style={styles.settingLabel}>SMS Urgent Outage Alerts</Text>
-                            <Switch
-                                value={smsEnabled}
-                                onValueChange={setSmsEnabled}
-                                trackColor={{ true: colors.primary, false: colors.border }}
-                            />
-                        </View>
+                        <Text style={styles.settingsHint}>
+                            {user?.notificationsEnabled === false
+                                ? 'Notifications are turned off for your account. Contact support to enable them.'
+                                : 'You receive alerts for your subscribed locations.'}
+                        </Text>
                     </View>
                 </View>
             </Modal>
@@ -480,6 +479,15 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: colors.textPrimary,
         fontWeight: '500',
+    },
+    settingValue: {
+        fontSize: 13,
+        color: colors.textSecondary,
+    },
+    settingsHint: {
+        fontSize: 12,
+        color: colors.textMuted,
+        lineHeight: 17,
     },
     supportIntro: {
         fontSize: 14,

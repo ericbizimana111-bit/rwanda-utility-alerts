@@ -12,34 +12,74 @@ import { colors } from '../theme/colors';
 import { AppHeader } from '../components/AppHeader';
 import { Icon } from '../components/Icon';
 import { LoadingState } from '../components/LoadingState';
-import { api, Outage } from '../api/client';
+import { ErrorState } from '../components/ErrorState';
+import { api, Outage, extractOutageAreas } from '../api/client';
+import { formatTimeRange } from '../utils/format';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'OutageDetails'>;
+
+function statusLabel(status: string | undefined): string {
+    if (!status) return 'Outage';
+    switch (status.toLowerCase()) {
+        case 'planned':
+        case 'scheduled':
+            return 'Scheduled Outage';
+        case 'active':
+        case 'ongoing':
+            return 'Active Outage';
+        case 'resolved':
+        case 'completed':
+            return 'Resolved';
+        case 'cancelled':
+            return 'Cancelled';
+        default:
+            return status.charAt(0).toUpperCase() + status.slice(1);
+    }
+}
 
 export function OutageDetailsScreen({ route, navigation }: Props) {
     const { outageId } = route.params;
     const [outage, setOutage] = useState<Outage | null>(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    async function fetchDetail() {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await api.getOutage(outageId);
+            setOutage(data);
+        } catch {
+            setError('Unable to load this outage. It may no longer exist.');
+        } finally {
+            setLoading(false);
+        }
+    }
 
     useEffect(() => {
-        async function fetchDetail() {
-            try {
-                const data = await api.getOutage(outageId);
-                setOutage(data);
-            } catch {
-                // Mock fallback handled by api client
-            } finally {
-                setLoading(false);
-            }
-        }
         void fetchDetail();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [outageId]);
 
-    if (loading || !outage) {
+    if (loading) {
         return (
             <SafeAreaView style={styles.safeArea}>
                 <AppHeader title="Outage Details" showBack onBack={() => navigation.goBack()} />
                 <LoadingState message="Loading outage details..." />
+            </SafeAreaView>
+        );
+    }
+
+    if (error || !outage) {
+        return (
+            <SafeAreaView style={styles.safeArea}>
+                <AppHeader title="Outage Details" showBack onBack={() => navigation.goBack()} />
+                <ErrorState
+                    title="Unable to load outage"
+                    description={error ?? 'This outage could not be found.'}
+                    buttonTitle="Retry"
+                    onRetry={() => void fetchDetail()}
+                />
             </SafeAreaView>
         );
     }
@@ -49,15 +89,10 @@ export function OutageDetailsScreen({ route, navigation }: Props) {
     const iconBg = isWater ? colors.waterBg : colors.electricityBg;
     const iconName = isWater ? 'water' : 'lightning';
 
-    // Bullet points for Affected Areas
-    const affectedAreas = [
-        'Kigali City (all sectors)',
-        'Nyamirambo',
-        'Kacyiru',
-        'Gacuriro',
-    ];
+    // Real affected locations from the outage record (may be empty).
+    const affectedAreas = extractOutageAreas(outage);
 
-    const timeDisplay = [outage.startTime, outage.endTime].filter(Boolean).join(' - ');
+    const timeDisplay = formatTimeRange(outage.startTime, outage.endTime);
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -75,10 +110,25 @@ export function OutageDetailsScreen({ route, navigation }: Props) {
                     </View>
                     <View style={styles.headerInfo}>
                         <Text style={styles.outageTitle}>{outage.title}</Text>
-                        <Text style={styles.outageStatus}>{outage.status || 'Scheduled Outage'}</Text>
-                        <Text style={styles.outageTime}>{timeDisplay}</Text>
+                        <Text style={styles.outageStatus}>{statusLabel(outage.status)}</Text>
+                        {timeDisplay ? (
+                            <Text style={styles.outageTime}>{timeDisplay}</Text>
+                        ) : (
+                            <Text style={styles.outageTime}>Schedule to be announced</Text>
+                        )}
                     </View>
                 </View>
+
+                {/* Section: Description */}
+                {outage.description ? (
+                    <View style={styles.sectionCard}>
+                        <View style={styles.sectionHeadingRow}>
+                            <Icon name="info" size={18} color={colors.textPrimary} />
+                            <Text style={styles.sectionHeading}>Details</Text>
+                        </View>
+                        <Text style={styles.sectionBody}>{outage.description}</Text>
+                    </View>
+                ) : null}
 
                 {/* Section: Affected Areas */}
                 <View style={styles.sectionCard}>
@@ -86,14 +136,20 @@ export function OutageDetailsScreen({ route, navigation }: Props) {
                         <Icon name="users" size={18} color={colors.textPrimary} />
                         <Text style={styles.sectionHeading}>Affected Areas</Text>
                     </View>
-                    <View style={styles.bulletList}>
-                        {affectedAreas.map((area, index) => (
-                            <View key={index} style={styles.bulletItem}>
-                                <View style={styles.bulletDot} />
-                                <Text style={styles.bulletText}>{area}</Text>
-                            </View>
-                        ))}
-                    </View>
+                    {affectedAreas.length > 0 ? (
+                        <View style={styles.bulletList}>
+                            {affectedAreas.map((area) => (
+                                <View key={area} style={styles.bulletItem}>
+                                    <View style={styles.bulletDot} />
+                                    <Text style={styles.bulletText}>{area}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    ) : (
+                        <Text style={styles.sectionBody}>
+                            No specific affected locations were provided for this outage.
+                        </Text>
+                    )}
                 </View>
 
                 {/* Section: Utility */}
@@ -102,7 +158,7 @@ export function OutageDetailsScreen({ route, navigation }: Props) {
                         <Icon name="lightning" size={18} color={colors.textPrimary} />
                         <Text style={styles.sectionHeading}>Utility</Text>
                     </View>
-                    <Text style={styles.sectionValue}>{outage.utility?.name || 'Electricity'}</Text>
+                    <Text style={styles.sectionValue}>{outage.utility?.name ?? 'Unknown utility'}</Text>
                 </View>
 
                 {/* Section: Source */}
@@ -112,8 +168,11 @@ export function OutageDetailsScreen({ route, navigation }: Props) {
                         <Text style={styles.sectionHeading}>Source</Text>
                     </View>
                     <Text style={styles.sectionValue}>
-                        {outage.sourceName || 'REG (Rwanda Energy Group)'}
+                        {outage.sourceName || 'Not specified'}
                     </Text>
+                    {outage.sourceUrl ? (
+                        <Text style={styles.sectionSubValue}>{outage.sourceUrl}</Text>
+                    ) : null}
                 </View>
 
                 {/* Info Callout Banner */}
@@ -202,6 +261,17 @@ const styles = StyleSheet.create({
     sectionValue: {
         fontSize: 14,
         color: colors.textSecondary,
+        paddingLeft: 26,
+    },
+    sectionSubValue: {
+        fontSize: 12,
+        color: colors.textMuted,
+        paddingLeft: 26,
+    },
+    sectionBody: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        lineHeight: 20,
         paddingLeft: 26,
     },
     bulletList: {

@@ -15,94 +15,73 @@ import { colors } from '../theme/colors';
 import { AppHeader } from '../components/AppHeader';
 import { CustomDropdown, DropdownOption } from '../components/CustomDropdown';
 import { Icon } from '../components/Icon';
-import { api, Location, Utility } from '../api/client';
+import { api, ApiError, Location, Utility } from '../api/client';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AddSubscription'>;
 
 export function AddSubscriptionScreen({ navigation }: Props) {
     const [locations, setLocations] = useState<Location[]>([]);
     const [utilities, setUtilities] = useState<Utility[]>([]);
-    const [district, setDistrict] = useState<string | null>(null);
-    const [sector, setSector] = useState<string | null>(null);
+    const [loadingOptions, setLoadingOptions] = useState(true);
+    const [optionsError, setOptionsError] = useState<string | null>(null);
     const [location, setLocation] = useState<string | null>(null);
-    const [utilityType, setUtilityType] = useState<'electricity' | 'water'>('electricity');
+    const [utilityId, setUtilityId] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [successModal, setSuccessModal] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-    useEffect(() => {
-        async function fetchOptions() {
-            try {
-                const [locs, utils] = await Promise.all([
-                    api.getLocations(),
-                    api.getUtilities(),
-                ]);
-                setLocations(locs);
-                setUtilities(utils);
-            } catch {
-                // Handled
-            }
+    async function fetchOptions() {
+        setLoadingOptions(true);
+        setOptionsError(null);
+        try {
+            const [locs, utils] = await Promise.all([
+                api.getLocations(),
+                api.getUtilities(),
+            ]);
+            setLocations(locs);
+            setUtilities(utils);
+        } catch (err) {
+            setOptionsError(
+                err instanceof ApiError ? err.message : 'Unable to load locations and utilities.'
+            );
+        } finally {
+            setLoadingOptions(false);
         }
+    }
+
+    useEffect(() => {
         void fetchOptions();
     }, []);
 
-    // District options from locations or defaults
-    const districtList = Array.from(new Set(locations.map((l) => l.district).filter(Boolean)));
-    const districtOptions: DropdownOption[] = (
-        districtList.length > 0
-            ? districtList
-            : ['Gasabo District', 'Nyarugenge District', 'Kicukiro District', 'Rwamagana District', 'Muhanga District', 'Musanze District', 'Rubavu District']
-    ).map((d) => ({ label: d, value: d }));
-
-    // Sector options filtered by district
-    const sectorList = Array.from(
-        new Set(
-            locations
-                .filter((l) => !district || l.district === district)
-                .map((l) => l.sector)
-                .filter(Boolean) as string[]
-        )
-    );
-    const sectorOptions: DropdownOption[] = (
-        sectorList.length > 0
-            ? sectorList
-            : ['Kimironko', 'Kacyiru', 'Gisozi', 'Nyamirambo', 'Niboye', 'Gatenga', 'Muhoza']
-    ).map((s) => ({ label: s, value: s }));
-
-    // Location options
+    // Real locations from the backend only. The submit button stays disabled
+    // until a real location record is selected.
     const locationOptions: DropdownOption[] = locations.map((l) => ({
-        label: `${l.district}${l.sector ? ' - ' + l.sector : ''}${l.cell ? ' (' + l.cell + ')' : ''}`,
+        label: [l.district, l.sector, l.cell].filter(Boolean).join(' - '),
         value: l.id,
     }));
 
-    if (locationOptions.length === 0) {
-        locationOptions.push(
-            { label: 'Kimironko Sector - Kibagabaga Cell', value: 'loc-gasabo-1' },
-            { label: 'Nyamirambo - Rwezamenyo', value: 'loc-nyarugenge-1' },
-            { label: 'Niboye - Gatenga Center', value: 'loc-kicukiro-1' },
-            { label: 'Kacyiru - Golf Course Zone', value: 'loc-gasabo-kacyiru' }
-        );
-    }
+    // Real utilities from the backend only.
+    const utilityOptions: DropdownOption[] = utilities
+        .filter((u) => u.isActive)
+        .map((u) => ({ label: `${u.name} (${u.code})`, value: u.id }));
 
     async function handleSubscribe() {
+        if (!location || !utilityId) {
+            setErrorMsg('Please select both a location and a utility.');
+            return;
+        }
+
         setBusy(true);
         setErrorMsg(null);
         try {
-            // Find matched location
-            const chosenLoc = locations.find((l) => l.id === location) || locations[0];
-            const targetUtility = utilities.find((u) =>
-                utilityType === 'water'
-                    ? u.name.toLowerCase().includes('water')
-                    : u.name.toLowerCase().includes('electric')
-            ) || utilities[0];
-
-            await api.createSubscription(
-                chosenLoc?.id || 'loc-gasabo-1',
-                targetUtility?.id || (utilityType === 'water' ? 'util-wasac-2' : 'util-reg-1')
-            );
+            await api.createSubscription(location, utilityId);
             setSuccessModal(true);
-        } catch {
-            setErrorMsg('Unable to add subscription. Please verify your connection.');
+        } catch (err) {
+            setErrorMsg(
+                err instanceof ApiError
+                    ? err.message
+                    : 'Unable to add subscription. Please verify your connection.'
+            );
         } finally {
             setBusy(false);
         }
@@ -117,98 +96,67 @@ export function AddSubscriptionScreen({ navigation }: Props) {
             />
 
             <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-                {/* District Dropdown */}
-                <CustomDropdown
-                    label="District"
-                    placeholder="Select district"
-                    value={district}
-                    options={districtOptions}
-                    onSelect={(opt) => {
-                        setDistrict(opt.value);
-                        setSector(null);
-                    }}
-                />
+                {loadingOptions ? (
+                    <View style={styles.optionsLoader}>
+                        <ActivityIndicator color={colors.primary} />
+                        <Text style={styles.optionsLoaderText}>Loading locations and utilities...</Text>
+                    </View>
+                ) : optionsError ? (
+                    <View style={styles.optionsErrorBox}>
+                        <Text style={styles.errorText}>{optionsError}</Text>
+                        <Pressable style={styles.retryBtn} onPress={() => void fetchOptions()}>
+                            <Text style={styles.retryBtnText}>Retry</Text>
+                        </Pressable>
+                    </View>
+                ) : (
+                    <>
+                        {/* Location Dropdown (real backend locations) */}
+                        <CustomDropdown
+                            label="Location"
+                            placeholder="Select location"
+                            value={location}
+                            options={locationOptions}
+                            onSelect={(opt) => setLocation(opt.value)}
+                        />
 
-                {/* Sector Dropdown */}
-                <CustomDropdown
-                    label="Sector"
-                    placeholder="Select sector"
-                    value={sector}
-                    options={sectorOptions}
-                    onSelect={(opt) => setSector(opt.value)}
-                />
+                        {/* Utility Dropdown (real backend utilities) */}
+                        <CustomDropdown
+                            label="Utility"
+                            placeholder="Select utility"
+                            value={utilityId}
+                            options={utilityOptions}
+                            onSelect={(opt) => setUtilityId(opt.value)}
+                        />
 
-                {/* Location Dropdown */}
-                <CustomDropdown
-                    label="Location"
-                    placeholder="Select location"
-                    value={location}
-                    options={locationOptions}
-                    onSelect={(opt) => setLocation(opt.value)}
-                />
+                        {locationOptions.length === 0 || utilityOptions.length === 0 ? (
+                            <Text style={styles.emptyOptionsText}>
+                                No locations or utilities are available right now. Please try again later.
+                            </Text>
+                        ) : null}
 
-                {/* Utility Radio Cards */}
-                <View style={styles.utilitySection}>
-                    <Text style={styles.sectionLabel}>Utility</Text>
+                        {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
 
-                    {/* Electricity Card */}
-                    <Pressable
-                        style={[
-                            styles.utilityCard,
-                            utilityType === 'electricity' && styles.utilityCardSelected,
-                        ]}
-                        onPress={() => setUtilityType('electricity')}
-                    >
-                        <View style={styles.utilityCardLeft}>
-                            <View style={[styles.iconBox, { backgroundColor: colors.electricityBg }]}>
-                                <Icon name="lightning" size={20} color={colors.electricityIcon} />
-                            </View>
-                            <Text style={styles.utilityName}>Electricity</Text>
-                        </View>
-
-                        <View style={styles.radioOuter}>
-                            {utilityType === 'electricity' && <View style={styles.radioInner} />}
-                        </View>
-                    </Pressable>
-
-                    {/* Water Card */}
-                    <Pressable
-                        style={[
-                            styles.utilityCard,
-                            utilityType === 'water' && styles.utilityCardSelected,
-                        ]}
-                        onPress={() => setUtilityType('water')}
-                    >
-                        <View style={styles.utilityCardLeft}>
-                            <View style={[styles.iconBox, { backgroundColor: colors.waterBg }]}>
-                                <Icon name="water" size={20} color={colors.water} />
-                            </View>
-                            <Text style={styles.utilityName}>Water</Text>
-                        </View>
-
-                        <View style={styles.radioOuter}>
-                            {utilityType === 'water' && <View style={styles.radioInner} />}
-                        </View>
-                    </Pressable>
-                </View>
-
-                {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
-
-                {/* Subscribe Button */}
-                <Pressable
-                    style={({ pressed }) => [styles.submitBtn, pressed && styles.btnPressed]}
-                    onPress={handleSubscribe}
-                    disabled={busy}
-                >
-                    {busy ? (
-                        <ActivityIndicator color="#FFFFFF" />
-                    ) : (
-                        <Text style={styles.submitBtnText}>Subscribe</Text>
-                    )}
-                </Pressable>
+                        {/* Subscribe Button */}
+                        <Pressable
+                            style={({ pressed }) => [
+                                styles.submitBtn,
+                                (!location || !utilityId || busy) && styles.submitBtnDisabled,
+                                pressed && styles.btnPressed,
+                            ]}
+                            onPress={handleSubscribe}
+                            disabled={!location || !utilityId || busy}
+                        >
+                            {busy ? (
+                                <ActivityIndicator color="#FFFFFF" />
+                            ) : (
+                                <Text style={styles.submitBtnText}>Subscribe</Text>
+                            )}
+                        </Pressable>
+                    </>
+                )}
             </ScrollView>
 
-            {/* Success Modal */}
+            {/* Success Modal (shown only after the API call succeeded) */}
             <Modal visible={successModal} transparent animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.successCard}>
@@ -248,61 +196,36 @@ const styles = StyleSheet.create({
         padding: 20,
         gap: 14,
     },
-    utilitySection: {
-        marginTop: 6,
-        gap: 12,
-        marginBottom: 8,
+    optionsLoader: {
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 32,
     },
-    sectionLabel: {
+    optionsLoaderText: {
         fontSize: 13,
-        fontWeight: '600',
-        color: colors.textPrimary,
+        color: colors.textSecondary,
     },
-    utilityCard: {
-        backgroundColor: colors.surface,
-        borderRadius: 10,
-        padding: 14,
-        borderWidth: 1,
-        borderColor: colors.borderDark,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    utilityCardSelected: {
-        borderColor: colors.primary,
-        backgroundColor: '#FFFFFF',
-    },
-    utilityCardLeft: {
-        flexDirection: 'row',
+    optionsErrorBox: {
         alignItems: 'center',
         gap: 12,
+        paddingVertical: 24,
     },
-    iconBox: {
-        width: 36,
-        height: 36,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    utilityName: {
-        fontSize: 15,
-        fontWeight: '600',
-        color: colors.textPrimary,
-    },
-    radioOuter: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        borderWidth: 2,
-        borderColor: colors.primary,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    radioInner: {
-        width: 10,
-        height: 10,
-        borderRadius: 5,
+    retryBtn: {
         backgroundColor: colors.primary,
+        paddingVertical: 10,
+        paddingHorizontal: 32,
+        borderRadius: 8,
+    },
+    retryBtnText: {
+        color: '#FFFFFF',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    emptyOptionsText: {
+        fontSize: 13,
+        color: colors.textSecondary,
+        textAlign: 'center',
+        lineHeight: 18,
     },
     submitBtn: {
         backgroundColor: colors.primary,
@@ -316,6 +239,9 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.25,
         shadowRadius: 4,
         elevation: 3,
+    },
+    submitBtnDisabled: {
+        opacity: 0.5,
     },
     submitBtnText: {
         color: '#FFFFFF',

@@ -5,37 +5,108 @@ import {
     StyleSheet,
     Pressable,
     SafeAreaView,
-    Alert,
+    ScrollView,
+    ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { colors } from '../theme/colors';
 import { AppHeader } from '../components/AppHeader';
 import { Icon } from '../components/Icon';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import { ErrorState } from '../components/ErrorState';
+import { api, ApiError } from '../api/client';
+import {
+    ensurePushRegistration,
+    PushRegistrationOutcome,
+} from '../notifications/service';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DeviceRegistration'>;
 
+const OUTCOME_MESSAGES: Record<PushRegistrationOutcome, string> = {
+    registered: 'Your device is registered for push notifications.',
+    'not-device':
+        'Push registration requires a physical device. Emulators cannot receive Expo push notifications.',
+    'permission-denied':
+        'Notification permission was not granted. Enable notifications for this app in system settings and try again.',
+    'no-token':
+        'Could not obtain a push token from Expo services. Check your connection and try again.',
+    rejected:
+        'The server rejected the device registration. Make sure you are signed in and try again.',
+};
+
 export function DeviceRegistrationScreen({ navigation }: Props) {
+    const [status, setStatus] = useState<'loading' | 'registered' | 'error'>('loading');
     const [deviceId, setDeviceId] = useState<string | null>(null);
-    const [copied, setCopied] = useState(false);
+    const [pushToken, setPushToken] = useState<string | null>(null);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-    useEffect(() => {
-        AsyncStorage.getItem('rwanda-utility-alerts.device-id').then(setDeviceId);
-    }, []);
-
-    function copyDeviceId() {
-        if (!deviceId) return;
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-        Alert.alert('Device ID Copied', deviceId);
+    async function runRegistration() {
+        setStatus('loading');
+        setErrorMessage(null);
+        try {
+            const outcome = await ensurePushRegistration();
+            if (outcome === 'registered') {
+                const [storedId, storedToken] = await Promise.all([
+                    api.getStoredDeviceId(),
+                    api.getStoredDeviceToken(),
+                ]);
+                if (storedId) {
+                    setDeviceId(storedId);
+                    setPushToken(storedToken);
+                    setStatus('registered');
+                    return;
+                }
+                // Token registered with Expo but no stored device ID: treat as
+                // an error so the user sees the real state, not a fake success.
+                setErrorMessage('Registration succeeded but no device ID was stored. Please retry.');
+                setStatus('error');
+                return;
+            }
+            setErrorMessage(OUTCOME_MESSAGES[outcome]);
+            setStatus('error');
+        } catch (err) {
+            setErrorMessage(
+                err instanceof ApiError ? err.message : 'Device registration failed unexpectedly.'
+            );
+            setStatus('error');
+        }
     }
 
-    function viewDetails() {
-        Alert.alert(
-            'Device Registration Details',
-            `Platform: ${Platform.OS}\nToken Status: Active\nRegistered for: REG & WASAC Outages\nID: ${deviceId || 'Not registered yet'}`
+    useEffect(() => {
+        void runRegistration();
+    }, []);
+
+    if (status === 'loading') {
+        return (
+            <SafeAreaView style={styles.safeArea}>
+                <AppHeader
+                    title="Device Registration"
+                    showBack
+                    onBack={() => navigation.goBack()}
+                />
+                <View style={styles.centered}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={styles.loadingText}>Registering your device for push alerts...</Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
+    if (status === 'error') {
+        return (
+            <SafeAreaView style={styles.safeArea}>
+                <AppHeader
+                    title="Device Registration"
+                    showBack
+                    onBack={() => navigation.goBack()}
+                />
+                <ErrorState
+                    title="Registration failed"
+                    description={errorMessage ?? 'An unknown error occurred.'}
+                    buttonTitle="Try Again"
+                    onRetry={() => void runRegistration()}
+                />
+            </SafeAreaView>
         );
     }
 
@@ -47,7 +118,7 @@ export function DeviceRegistrationScreen({ navigation }: Props) {
                 onBack={() => navigation.goBack()}
             />
 
-            <View style={styles.container}>
+            <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
                 {/* Checkmark Circle */}
                 <View style={styles.checkCircle}>
                     <Icon name="check" size={36} color="#FFFFFF" />
@@ -56,31 +127,39 @@ export function DeviceRegistrationScreen({ navigation }: Props) {
                 {/* Status Text */}
                 <Text style={styles.title}>Device Registered!</Text>
                 <Text style={styles.subtitle}>
-                    Your device has been successfully registered for push notifications.
+                    {errorMessage ?? 'Your device has been successfully registered for push notifications.'}
                 </Text>
 
-                {/* Device ID Card */}
+                {/* Device ID Card (real ID returned by POST /devices) */}
                 <View style={styles.deviceCard}>
                     <View style={styles.cardHeader}>
                         <Text style={styles.deviceLabel}>Device ID</Text>
-                        <Pressable onPress={copyDeviceId} hitSlop={10} style={styles.copyBtn}>
-                            <Icon name="copy" size={14} color={colors.primary} />
-                            <Text style={styles.copyText}>{copied ? 'Copied' : 'Copy'}</Text>
-                        </Pressable>
                     </View>
                     <View style={styles.codeBox}>
-                        <Text style={styles.codeText}>{deviceId || 'Loading...'}</Text>
+                        <Text style={styles.codeText}>{deviceId ?? 'Unknown'}</Text>
                     </View>
                 </View>
 
-                {/* View Details Button */}
+                {/* Push Token Card (real Expo push token) */}
+                {pushToken ? (
+                    <View style={styles.deviceCard}>
+                        <View style={styles.cardHeader}>
+                            <Text style={styles.deviceLabel}>Push Token</Text>
+                        </View>
+                        <View style={styles.codeBox}>
+                            <Text style={styles.codeText}>{pushToken}</Text>
+                        </View>
+                    </View>
+                ) : null}
+
+                {/* Register Another Device / Retry */}
                 <Pressable
                     style={({ pressed }) => [styles.detailsBtn, pressed && styles.btnPressed]}
-                    onPress={viewDetails}
+                    onPress={() => void runRegistration()}
                 >
-                    <Text style={styles.detailsBtnText}>View Details</Text>
+                    <Text style={styles.detailsBtnText}>Re-register Device</Text>
                 </Pressable>
-            </View>
+            </ScrollView>
         </SafeAreaView>
     );
 }
@@ -93,9 +172,25 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: colors.background,
+    },
+    scrollContent: {
         alignItems: 'center',
         paddingHorizontal: 24,
         paddingTop: 48,
+        paddingBottom: 32,
+    },
+    centered: {
+        flex: 1,
+        backgroundColor: colors.background,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 14,
+        padding: 24,
+    },
+    loadingText: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        textAlign: 'center',
     },
     checkCircle: {
         width: 68,
@@ -134,7 +229,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.border,
         gap: 8,
-        marginBottom: 24,
+        marginBottom: 16,
     },
     cardHeader: {
         flexDirection: 'row',
@@ -145,16 +240,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '600',
         color: colors.textSecondary,
-    },
-    copyBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-    },
-    copyText: {
-        fontSize: 12,
-        color: colors.primary,
-        fontWeight: '600',
     },
     codeBox: {
         backgroundColor: '#F8FAFC',
@@ -178,6 +263,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 36,
         alignItems: 'center',
         justifyContent: 'center',
+        marginTop: 8,
     },
     btnPressed: {
         backgroundColor: '#F1F5F9',
