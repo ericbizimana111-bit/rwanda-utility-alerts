@@ -5,17 +5,20 @@
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "android:dev-build": "expo run:android"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.1.2",
     "@react-navigation/native": "^7.1.6",
     "@react-navigation/native-stack": "^7.3.10",
     "expo": "^53.0.0",
+    "expo-dev-client": "~5.2.4",
     "expo-device": "^7.1.4",
     "expo-notifications": "^0.31.4",
     "react": "19.0.0",
@@ -23,6 +26,7 @@
     "react-native": "0.79.6",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
+    "react-native-svg": "^15.15.5",
     "react-native-web": "0.20.0",
     "zustand": "^5.0.3"
   },

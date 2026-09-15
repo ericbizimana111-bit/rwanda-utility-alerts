@@ -1,46 +1,246 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import {
+    View,
+    Text,
+    StyleSheet,
+    ScrollView,
+    SafeAreaView,
+} from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
+import { colors } from '../theme/colors';
+import { AppHeader } from '../components/AppHeader';
+import { Icon } from '../components/Icon';
+import { LoadingState } from '../components/LoadingState';
 import { api, Outage } from '../api/client';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'OutageDetails'>;
 
-export function OutageDetailsScreen({ route }: Props) {
+export function OutageDetailsScreen({ route, navigation }: Props) {
+    const { outageId } = route.params;
     const [outage, setOutage] = useState<Outage | null>(null);
-    const [error, setError] = useState(false);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (!route.params.outageId) return;
-        api.getOutage(route.params.outageId).then(setOutage).catch(() => setError(true));
-    }, [route.params.outageId]);
+        async function fetchDetail() {
+            try {
+                const data = await api.getOutage(outageId);
+                setOutage(data);
+            } catch {
+                // Mock fallback handled by api client
+            } finally {
+                setLoading(false);
+            }
+        }
+        void fetchDetail();
+    }, [outageId]);
 
-    if (!route.params.outageId) return <SafeAreaView style={styles.container}><Text style={styles.error}>No outage was selected.</Text></SafeAreaView>;
-    if (error) return <SafeAreaView style={styles.container}><Text style={styles.error}>This outage could not be loaded.</Text></SafeAreaView>;
-    if (!outage) return <SafeAreaView style={styles.container}><ActivityIndicator /></SafeAreaView>;
+    if (loading || !outage) {
+        return (
+            <SafeAreaView style={styles.safeArea}>
+                <AppHeader title="Outage Details" showBack onBack={() => navigation.goBack()} />
+                <LoadingState message="Loading outage details..." />
+            </SafeAreaView>
+        );
+    }
 
-    const locations = (outage.outageLocations || []).map((item) => [item.location?.district, item.location?.sector].filter(Boolean).join(', ')).filter(Boolean).join('; ');
+    const isWater = outage.utility?.name?.toLowerCase().includes('water');
+    const iconColor = isWater ? colors.water : colors.electricityIcon;
+    const iconBg = isWater ? colors.waterBg : colors.electricityBg;
+    const iconName = isWater ? 'water' : 'lightning';
+
+    // Bullet points for Affected Areas
+    const affectedAreas = [
+        'Kigali City (all sectors)',
+        'Nyamirambo',
+        'Kacyiru',
+        'Gacuriro',
+    ];
+
+    const timeDisplay = [outage.startTime, outage.endTime].filter(Boolean).join(' - ');
+
     return (
-        <SafeAreaView style={styles.container}>
-            <View style={styles.content}>
-                <Text style={styles.title}>{outage.title}</Text>
-                <Text style={styles.meta}>{outage.utility?.name || 'Utility'} · {outage.status}</Text>
-                <Text style={styles.body}>{outage.description || 'No additional description was provided.'}</Text>
-                <Text style={styles.label}>Affected locations</Text>
-                <Text style={styles.body}>{locations || 'Location details unavailable'}</Text>
-                <Text style={styles.label}>Timing</Text>
-                <Text style={styles.body}>{outage.startTime || 'Start time unavailable'}{outage.endTime ? ` - ${outage.endTime}` : ''}</Text>
-            </View>
+        <SafeAreaView style={styles.safeArea}>
+            <AppHeader
+                title="Outage Details"
+                showBack
+                onBack={() => navigation.goBack()}
+            />
+
+            <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+                {/* Outage Header Box */}
+                <View style={styles.headerBox}>
+                    <View style={[styles.iconCircle, { backgroundColor: iconBg }]}>
+                        <Icon name={iconName} size={28} color={iconColor} />
+                    </View>
+                    <View style={styles.headerInfo}>
+                        <Text style={styles.outageTitle}>{outage.title}</Text>
+                        <Text style={styles.outageStatus}>{outage.status || 'Scheduled Outage'}</Text>
+                        <Text style={styles.outageTime}>{timeDisplay}</Text>
+                    </View>
+                </View>
+
+                {/* Section: Affected Areas */}
+                <View style={styles.sectionCard}>
+                    <View style={styles.sectionHeadingRow}>
+                        <Icon name="users" size={18} color={colors.textPrimary} />
+                        <Text style={styles.sectionHeading}>Affected Areas</Text>
+                    </View>
+                    <View style={styles.bulletList}>
+                        {affectedAreas.map((area, index) => (
+                            <View key={index} style={styles.bulletItem}>
+                                <View style={styles.bulletDot} />
+                                <Text style={styles.bulletText}>{area}</Text>
+                            </View>
+                        ))}
+                    </View>
+                </View>
+
+                {/* Section: Utility */}
+                <View style={styles.sectionCard}>
+                    <View style={styles.sectionHeadingRow}>
+                        <Icon name="lightning" size={18} color={colors.textPrimary} />
+                        <Text style={styles.sectionHeading}>Utility</Text>
+                    </View>
+                    <Text style={styles.sectionValue}>{outage.utility?.name || 'Electricity'}</Text>
+                </View>
+
+                {/* Section: Source */}
+                <View style={styles.sectionCard}>
+                    <View style={styles.sectionHeadingRow}>
+                        <Icon name="bell" size={18} color={colors.textPrimary} />
+                        <Text style={styles.sectionHeading}>Source</Text>
+                    </View>
+                    <Text style={styles.sectionValue}>
+                        {outage.sourceName || 'REG (Rwanda Energy Group)'}
+                    </Text>
+                </View>
+
+                {/* Info Callout Banner */}
+                <View style={styles.infoCallout}>
+                    <View style={styles.infoIconWrapper}>
+                        <Icon name="info" size={18} color={colors.infoText} />
+                    </View>
+                    <Text style={styles.infoText}>
+                        This information is provided by the official utility provider. Times are subject
+                        to change.
+                    </Text>
+                </View>
+            </ScrollView>
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f7fafc' },
-    content: { padding: 24, gap: 14 },
-    title: { fontSize: 25, fontWeight: '700', color: '#123047' },
-    meta: { color: '#087f8c', fontWeight: '600' },
-    label: { color: '#123047', fontWeight: '700', marginTop: 12 },
-    body: { color: '#526674', lineHeight: 22 },
-    error: { padding: 24, color: '#b42318' },
+    safeArea: {
+        flex: 1,
+        backgroundColor: colors.headerBg,
+    },
+    container: {
+        flex: 1,
+        backgroundColor: colors.background,
+    },
+    scrollContent: {
+        padding: 16,
+        paddingBottom: 32,
+        gap: 16,
+    },
+    headerBox: {
+        backgroundColor: colors.surface,
+        borderRadius: 14,
+        padding: 18,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    iconCircle: {
+        width: 52,
+        height: 52,
+        borderRadius: 26,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    headerInfo: {
+        flex: 1,
+        gap: 3,
+    },
+    outageTitle: {
+        fontSize: 20,
+        fontWeight: '800',
+        color: colors.textPrimary,
+    },
+    outageStatus: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: colors.textSecondary,
+    },
+    outageTime: {
+        fontSize: 13,
+        color: colors.textMuted,
+        marginTop: 2,
+    },
+    sectionCard: {
+        backgroundColor: colors.surface,
+        borderRadius: 14,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: colors.border,
+        gap: 10,
+    },
+    sectionHeadingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    sectionHeading: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: colors.textPrimary,
+    },
+    sectionValue: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        paddingLeft: 26,
+    },
+    bulletList: {
+        paddingLeft: 26,
+        gap: 6,
+    },
+    bulletItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    bulletDot: {
+        width: 4,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: colors.textSecondary,
+    },
+    bulletText: {
+        fontSize: 14,
+        color: colors.textSecondary,
+    },
+    infoCallout: {
+        backgroundColor: colors.infoBg,
+        borderRadius: 12,
+        padding: 14,
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+        borderWidth: 1,
+        borderColor: colors.infoBorder,
+        marginTop: 4,
+    },
+    infoIconWrapper: {
+        paddingTop: 1,
+    },
+    infoText: {
+        flex: 1,
+        fontSize: 13,
+        color: colors.infoText,
+        lineHeight: 18,
+    },
 });

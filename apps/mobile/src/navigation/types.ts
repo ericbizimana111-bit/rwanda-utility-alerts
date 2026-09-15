@@ -1,11 +1,16 @@
 export type RootStackParamList = {
+    Welcome: undefined;
     Login: undefined;
     SignUp: undefined;
     Home: undefined;
-    OutageDetails: { outageId: string };
     Outages: undefined;
+    OutageDetails: { outageId: string };
     Subscriptions: undefined;
-    ReportCreate: { reportId?: string };
+    AddSubscription: undefined;
     Reports: undefined;
+    ReportCreate?: { reportId?: string };
     Notifications: undefined;
+    Profile: undefined;
+    DeviceRegistration: undefined;
+    DemoStates: { mode?: 'all' | 'push' | 'loading' | 'empty' | 'error' } | undefined;
 };

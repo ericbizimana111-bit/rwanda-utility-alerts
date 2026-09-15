@@ -3,15 +3,19 @@ import * as Notifications from 'expo-notifications';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuthStore } from './src/auth/store';
-import { HomeScreen } from './src/screens/HomeScreen';
+import { WelcomeScreen } from './src/screens/WelcomeScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { SignUpScreen } from './src/screens/SignUpScreen';
-import { OutageDetailsScreen } from './src/screens/OutageDetailsScreen';
+import { HomeScreen } from './src/screens/HomeScreen';
 import { OutagesScreen } from './src/screens/OutagesScreen';
+import { OutageDetailsScreen } from './src/screens/OutageDetailsScreen';
 import { SubscriptionsScreen } from './src/screens/SubscriptionsScreen';
+import { AddSubscriptionScreen } from './src/screens/AddSubscriptionScreen';
 import { ReportCreateScreen } from './src/screens/ReportCreateScreen';
-import { ReportsScreen } from './src/screens/ReportsScreen';
 import { NotificationsScreen } from './src/screens/NotificationsScreen';
+import { ProfileScreen } from './src/screens/ProfileScreen';
+import { DeviceRegistrationScreen } from './src/screens/DeviceRegistrationScreen';
+import { DemoStatesScreen } from './src/screens/DemoStatesScreen';
 import { parseNotificationResponse } from './src/notifications/service';
 import { RootStackParamList } from './src/navigation/types';
 
@@ -62,21 +66,30 @@ export default function App() {
 
     return (
         <NavigationContainer ref={navigationRef}>
-            <Stack.Navigator>
+            <Stack.Navigator
+                screenOptions={{
+                    headerShown: false,
+                    animation: 'fade',
+                }}
+            >
                 {user ? (
                     <>
                         <Stack.Screen name="Home" component={HomeScreen} />
-                        <Stack.Screen name="OutageDetails" component={OutageDetailsScreen} options={{ title: 'Outage details' }} />
                         <Stack.Screen name="Outages" component={OutagesScreen} />
+                        <Stack.Screen name="OutageDetails" component={OutageDetailsScreen} />
                         <Stack.Screen name="Subscriptions" component={SubscriptionsScreen} />
-                        <Stack.Screen name="ReportCreate" component={ReportCreateScreen} />
-                        <Stack.Screen name="Reports" component={ReportsScreen} />
+                        <Stack.Screen name="AddSubscription" component={AddSubscriptionScreen} />
+                        <Stack.Screen name="Reports" component={ReportCreateScreen} />
                         <Stack.Screen name="Notifications" component={NotificationsScreen} />
+                        <Stack.Screen name="Profile" component={ProfileScreen} />
+                        <Stack.Screen name="DeviceRegistration" component={DeviceRegistrationScreen} />
+                        <Stack.Screen name="DemoStates" component={DemoStatesScreen} />
                     </>
                 ) : (
                     <>
-                        <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
-                        <Stack.Screen name="SignUp" component={SignUpScreen} options={{ headerShown: false }} />
+                        <Stack.Screen name="Welcome" component={WelcomeScreen} />
+                        <Stack.Screen name="Login" component={LoginScreen} />
+                        <Stack.Screen name="SignUp" component={SignUpScreen} />
                     </>
                 )}
             </Stack.Navigator>

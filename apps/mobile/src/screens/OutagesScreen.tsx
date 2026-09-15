@@ -1,122 +1,161 @@
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
+    View,
+    Text,
+    StyleSheet,
+    FlatList,
     Pressable,
     SafeAreaView,
-    StyleSheet,
-    Switch,
-    Text,
-    View,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
+import { colors } from '../theme/colors';
+import { AppHeader } from '../components/AppHeader';
+import { BottomNavigation } from '../components/BottomNavigation';
+import { OutageCard } from '../components/OutageCard';
+import { LoadingState } from '../components/LoadingState';
+import { EmptyState } from '../components/EmptyState';
+import { ErrorState } from '../components/ErrorState';
 import { api, Outage } from '../api/client';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Outages'>;
-
-type ListTab = 'upcoming' | 'active';
-
-function OutageCard({ outage, onPress }: { outage: Outage; onPress: () => void }) {
-    const locations = (outage.outageLocations || [])
-        .map((item) => [item.location?.district, item.location?.sector].filter(Boolean).join(', '))
-        .filter(Boolean)
-        .join('; ');
-    return (
-        <Pressable style={styles.card} onPress={onPress}>
-            <View style={styles.cardHeader}>
-                <Text style={styles.cardUtility}>{outage.utility?.name || 'Utility'} · {outage.status}</Text>
-                <Text style={styles.cardSource}>{outage.sourceName ? outage.sourceName : 'Official source'}</Text>
-            </View>
-            <Text style={styles.cardTitle}>{outage.title}</Text>
-            <Text style={styles.cardDescription}>{outage.description || 'No additional description was provided.'}</Text>
-            <View style={styles.cardMeta}>
-                <Text style={styles.metaLabel}>Affected locations</Text>
-                <Text style={styles.metaValue}>{locations || 'Location details unavailable'}</Text>
-            </View>
-            <View style={styles.cardMeta}>
-                <Text style={styles.metaLabel}>Timing</Text>
-                <Text style={styles.metaValue}>
-                    {outage.startTime || 'Start time unavailable'}
-                    {outage.endTime ? ` - ${outage.endTime}` : ''}
-                </Text>
-            </View>
-        </Pressable>
-    );
-}
+type TabType = 'upcoming' | 'active';
 
 export function OutagesScreen({ navigation }: Props) {
-    const [tab, setTab] = useState<ListTab>('upcoming');
-    const [items, setItems] = useState<Outage[]>([]);
+    const [activeTab, setActiveTab] = useState<TabType>('upcoming');
+    const [upcomingItems, setUpcomingItems] = useState<Outage[]>([]);
+    const [activeItems, setActiveItems] = useState<Outage[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    async function loadOutages() {
+        setLoading(true);
+        setError(null);
+        try {
+            const [upcoming, active] = await Promise.all([
+                api.getUpcomingOutages(),
+                api.getActiveOutages(),
+            ]);
+            setUpcomingItems(upcoming);
+            setActiveItems(active);
+        } catch {
+            setError('Unable to load outages.');
+        } finally {
+            setLoading(false);
+        }
+    }
+
     useEffect(() => {
-        let cancelled = false;
-        const load = async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                const data = tab === 'upcoming' ? await api.getUpcomingOutages() : await api.getActiveOutages();
-                if (!cancelled) setItems(data);
-            } catch {
-                if (!cancelled) setError('Unable to load outages.');
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
-        };
-        void load();
-        return () => { cancelled = true; };
-    }, [tab]);
+        void loadOutages();
+    }, []);
+
+    const displayedItems = activeTab === 'upcoming' ? upcomingItems : activeItems;
 
     return (
-        <SafeAreaView style={styles.container}>
-            <View style={styles.tabs}>
-                <Pressable style={[styles.tab, tab === 'upcoming' && styles.tabActive]} onPress={() => setTab('upcoming')}>
-                    <Text style={[styles.tabText, tab === 'upcoming' && styles.tabTextActive]}>Upcoming</Text>
-                </Pressable>
-                <Pressable style={[styles.tab, tab === 'active' && styles.tabActive]} onPress={() => setTab('active')}>
-                    <Text style={[styles.tabText, tab === 'active' && styles.tabTextActive]}>Active</Text>
-                </Pressable>
-            </View>
-            {loading ? (
-                <ActivityIndicator style={styles.loader} />
-            ) : error ? (
-                <View style={styles.empty}><Text style={styles.emptyText}>{error}</Text></View>
-            ) : items.length === 0 ? (
-                <View style={styles.empty}><Text style={styles.emptyText}>No {tab} outages are available right now.</Text></View>
-            ) : (
-                <View style={styles.list}>
-                    {items.map((outage) => (
-                        <OutageCard
-                            key={outage.id}
-                            outage={outage}
-                            onPress={() => navigation.navigate('OutageDetails', { outageId: outage.id })}
-                        />
-                    ))}
+        <SafeAreaView style={styles.safeArea}>
+            <AppHeader title="Outages" />
+
+            <View style={styles.container}>
+                {/* Segmented Tabs */}
+                <View style={styles.tabBar}>
+                    <Pressable
+                        style={[styles.tabButton, activeTab === 'upcoming' && styles.tabButtonActive]}
+                        onPress={() => setActiveTab('upcoming')}
+                    >
+                        <Text
+                            style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}
+                        >
+                            Upcoming ({upcomingItems.length})
+                        </Text>
+                    </Pressable>
+
+                    <Pressable
+                        style={[styles.tabButton, activeTab === 'active' && styles.tabButtonActive]}
+                        onPress={() => setActiveTab('active')}
+                    >
+                        <Text style={[styles.tabText, activeTab === 'active' && styles.tabTextActive]}>
+                            Active ({activeItems.length})
+                        </Text>
+                    </Pressable>
                 </View>
-            )}
+
+                {/* Content */}
+                {loading ? (
+                    <LoadingState message="Loading outages..." />
+                ) : error ? (
+                    <ErrorState onRetry={loadOutages} />
+                ) : displayedItems.length === 0 ? (
+                    <EmptyState
+                        title="No active outages"
+                        description="There are currently no active utility outages in your area."
+                        buttonTitle=""
+                    />
+                ) : (
+                    <FlatList
+                        data={displayedItems}
+                        keyExtractor={(item) => item.id}
+                        contentContainerStyle={styles.listContent}
+                        renderItem={({ item }) => (
+                            <OutageCard
+                                outage={item}
+                                onPress={() => navigation.navigate('OutageDetails', { outageId: item.id })}
+                            />
+                        )}
+                        showsVerticalScrollIndicator={false}
+                    />
+                )}
+            </View>
+
+            <BottomNavigation
+                activeTab="Outages"
+                onTabPress={(tab) => {
+                    if (tab === 'Home') navigation.navigate('Home');
+                    else if (tab === 'Subscriptions') navigation.navigate('Subscriptions');
+                    else if (tab === 'Reports') navigation.navigate('Reports');
+                    else if (tab === 'More') navigation.navigate('Profile');
+                }}
+            />
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f7fafc' },
-    tabs: { flexDirection: 'row', padding: 16, gap: 12, borderBottomWidth: 1, borderColor: '#e2e8f0' },
-    tab: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#fff', borderWidth: 1, borderColor: '#d8e1e8' },
-    tabActive: { backgroundColor: '#123047', borderColor: '#123047' },
-    tabText: { color: '#526674', fontWeight: '600' },
-    tabTextActive: { color: '#fff' },
-    loader: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-    emptyText: { color: '#526674', textAlign: 'center' },
-    list: { flex: 1, padding: 12 },
-    card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#e2e8f0' },
-    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-    cardUtility: { color: '#087f8c', fontWeight: '600', fontSize: 13 },
-    cardSource: { color: '#526674', fontSize: 12 },
-    cardTitle: { fontSize: 17, fontWeight: '700', color: '#123047', marginBottom: 6 },
-    cardDescription: { color: '#526674', lineHeight: 20, marginBottom: 10 },
-    cardMeta: { marginTop: 8 },
-    metaLabel: { fontSize: 12, fontWeight: '700', color: '#123047', marginBottom: 2 },
-    metaValue: { color: '#526674', lineHeight: 18 },
+    safeArea: {
+        flex: 1,
+        backgroundColor: colors.headerBg,
+    },
+    container: {
+        flex: 1,
+        backgroundColor: colors.background,
+    },
+    tabBar: {
+        flexDirection: 'row',
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    tabButton: {
+        flex: 1,
+        paddingVertical: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderBottomWidth: 2.5,
+        borderBottomColor: 'transparent',
+    },
+    tabButtonActive: {
+        borderBottomColor: colors.primary,
+    },
+    tabText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: colors.textSecondary,
+    },
+    tabTextActive: {
+        color: colors.primary,
+        fontWeight: '700',
+    },
+    listContent: {
+        padding: 16,
+        paddingBottom: 24,
+    },
 });

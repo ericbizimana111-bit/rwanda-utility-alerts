@@ -13,3 +13,4 @@ coverage/
 *.log
 
 tmp_*.sql
+android/

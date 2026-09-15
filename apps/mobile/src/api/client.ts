@@ -1,11 +1,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:3000';
+const getBaseUrl = () => {
+    if (process.env.EXPO_PUBLIC_API_URL) {
+        return process.env.EXPO_PUBLIC_API_URL;
+    }
+    if (Platform.OS === 'android') {
+        return 'http://10.0.2.2:3000';
+    }
+    return 'http://localhost:3000';
+};
+
+const API_URL = getBaseUrl();
 const TOKEN_KEY = 'rwanda-utility-alerts.access-token';
 const DEVICE_KEY = 'rwanda-utility-alerts.device-id';
-
-// Android emulator reaches the host PC through 10.0.2.2.
-// Physical Android devices and production should set EXPO_PUBLIC_API_URL explicitly.
+const USER_KEY = 'rwanda-utility-alerts.cached-user';
 
 export type ApiUser = {
     id: string;
@@ -30,24 +39,6 @@ export type Outage = {
     sourceUrl?: string | null;
     sourceType?: string;
 };
-
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const token = await AsyncStorage.getItem(TOKEN_KEY);
-    const response = await fetch(`${API_URL}${path}`, {
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            ...(options.headers || {}),
-        },
-    });
-
-    if (!response.ok) {
-        throw new Error(`API request failed (${response.status})`);
-    }
-
-    return response.json() as Promise<T>;
-}
 
 export type Location = {
     id: string;
@@ -109,6 +100,34 @@ export type NotificationItem = {
     outage?: Outage;
 };
 
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+    const token = await AsyncStorage.getItem(TOKEN_KEY);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
+    try {
+        const response = await fetch(`${API_URL}${path}`, {
+            ...options,
+            signal: controller.signal,
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                ...(options.headers || {}),
+            },
+        });
+
+        clearTimeout(timeout);
+        if (!response.ok) {
+            const errorBody = await response.text().catch(() => '');
+            throw new Error(`API request failed (${response.status}): ${errorBody}`);
+        }
+        return (await response.json()) as T;
+    } catch (err) {
+        clearTimeout(timeout);
+        throw err;
+    }
+}
+
 export const api = {
     async login(phone: string, password: string) {
         const result = await request<{ accessToken: string; user: ApiUser }>('/auth/login', {
@@ -116,88 +135,136 @@ export const api = {
             body: JSON.stringify({ phone, password }),
         });
         await AsyncStorage.setItem(TOKEN_KEY, result.accessToken);
+        await AsyncStorage.setItem(USER_KEY, JSON.stringify(result.user));
         return result;
     },
+
     async register(phone: string, password: string, firstName: string, lastName: string, email?: string) {
         const result = await request<{ message: string; user: ApiUser }>('/auth/register', {
             method: 'POST',
-            body: JSON.stringify({ phone, password, firstName, lastName, email }),
+            body: JSON.stringify({ phone, password, firstName, lastName, email: email || undefined }),
         });
+        if (result.user) {
+            // Automatically log in or cache
+            await AsyncStorage.setItem(USER_KEY, JSON.stringify(result.user));
+        }
         return result;
     },
-    async restoreSession() {
+
+    async restoreSession(): Promise<ApiUser | null> {
         const token = await AsyncStorage.getItem(TOKEN_KEY);
         if (!token) return null;
         try {
-            return await request<ApiUser>('/auth/me');
+            const user = await request<ApiUser>('/auth/me');
+            await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+            return user;
         } catch {
-            await AsyncStorage.removeItem(TOKEN_KEY);
+            const cached = await AsyncStorage.getItem(USER_KEY);
+            if (cached) {
+                try {
+                    return JSON.parse(cached) as ApiUser;
+                } catch {
+                    return null;
+                }
+            }
             return null;
         }
     },
+
     async logout() {
         await AsyncStorage.removeItem(TOKEN_KEY);
+        await AsyncStorage.removeItem(USER_KEY);
     },
+
     async registerDevice(pushToken: string, platform: 'android' | 'ios') {
-        const result = await request<{ id?: string }>('/devices', {
-            method: 'POST',
-            body: JSON.stringify({ pushToken, platform }),
-        });
-        if (result.id) await AsyncStorage.setItem(DEVICE_KEY, result.id);
-        return result;
+        try {
+            const result = await request<{ id?: string }>('/devices', {
+                method: 'POST',
+                body: JSON.stringify({ pushToken, platform }),
+            });
+            if (result.id) await AsyncStorage.setItem(DEVICE_KEY, result.id);
+            return result;
+        } catch {
+            const fallbackId = 'device-' + Date.now();
+            await AsyncStorage.setItem(DEVICE_KEY, fallbackId);
+            return { id: fallbackId };
+        }
     },
+
     async unregisterDevice() {
         const deviceId = await AsyncStorage.getItem(DEVICE_KEY);
         if (!deviceId) return;
         try {
             await request(`/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
+        } catch {
+            // Ignore offline error
         } finally {
             await AsyncStorage.removeItem(DEVICE_KEY);
         }
     },
-    getOutage(id: string) {
+
+    async getOutage(id: string) {
         return request<Outage>(`/outages/${encodeURIComponent(id)}`);
     },
-    getOutages() {
+
+    async getOutages() {
         return request<Outage[]>('/outages');
     },
-    getUpcomingOutages() {
-        return request<Outage[]>('/outages/upcoming');
+
+    async getUpcomingOutages() {
+        const result = await request<Outage[] | { data: Outage[] }>('/outages/upcoming');
+        return Array.isArray(result) ? result : result.data || [];
     },
-    getActiveOutages() {
-        return request<Outage[]>('/outages/active');
+
+    async getActiveOutages() {
+        const result = await request<Outage[] | { data: Outage[] }>('/outages/active');
+        return Array.isArray(result) ? result : result.data || [];
     },
-    getLocations() {
-        return request<Location[]>('/locations');
+
+    async getLocations() {
+        const result = await request<Location[] | { data: Location[] }>('/locations');
+        return Array.isArray(result) ? result : result.data || [];
     },
-    getUtilities() {
-        return request<Utility[]>('/utilities');
+
+    async getUtilities() {
+        const result = await request<Utility[] | { data: Utility[] }>('/utilities');
+        return Array.isArray(result) ? result : result.data || [];
     },
-    getSubscriptions() {
-        return request<Subscription[]>('/subscriptions');
+
+    async getSubscriptions() {
+        const result = await request<Subscription[] | { data: Subscription[] }>('/subscriptions');
+        return Array.isArray(result) ? result : result.data || [];
     },
+
     async createSubscription(locationId: string, utilityId: string) {
         return request<Subscription>('/subscriptions', {
             method: 'POST',
             body: JSON.stringify({ locationId, utilityId }),
         });
     },
+
     async deleteSubscription(id: string) {
         await request(`/subscriptions/${encodeURIComponent(id)}`, { method: 'DELETE' });
         return id;
     },
-    getReports() {
-        return request<Report[]>('/reports');
+
+    async getReports() {
+        const result = await request<Report[] | { data: Report[] }>('/reports');
+        return Array.isArray(result) ? result : result.data || [];
     },
+
     async createReport(locationId: string, utilityId: string, description: string) {
         return request<Report>('/reports', {
             method: 'POST',
             body: JSON.stringify({ locationId, utilityId, description }),
         });
     },
-    getNotificationList() {
-        return request<NotificationItem[]>('/notifications');
+
+    async getNotificationList() {
+        const result = await request<NotificationItem[] | { data: NotificationItem[] }>('/notifications');
+        return Array.isArray(result) ? result : result.data || [];
     },
+
     async markNotificationRead(id: string) {
         await request(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' });
         return id;

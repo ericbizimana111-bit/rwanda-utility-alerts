@@ -1,121 +1,178 @@
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
+    View,
+    Text,
+    StyleSheet,
     FlatList,
     Pressable,
     SafeAreaView,
-    StyleSheet,
-    Text,
-    View,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
+import { colors } from '../theme/colors';
+import { AppHeader } from '../components/AppHeader';
+import { BottomNavigation } from '../components/BottomNavigation';
+import { NotificationCard } from '../components/NotificationCard';
+import { LoadingState } from '../components/LoadingState';
+import { EmptyState } from '../components/EmptyState';
 import { api, NotificationItem } from '../api/client';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Notifications'>;
-
-function NotificationCard({ item, onPress, onMarkRead }: { item: NotificationItem; onPress: () => void; onMarkRead: () => void }) {
-    return (
-        <Pressable style={[styles.card, !item.isRead && styles.cardUnread]} onPress={onPress}>
-            <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{item.title}</Text>
-                {!item.isRead && <View style={styles.unreadDot} />}
-            </View>
-            <Text style={styles.cardMessage}>{item.message}</Text>
-            <View style={styles.cardFooter}>
-                <Text style={styles.cardMeta}>{new Date(item.createdAt).toLocaleString()}</Text>
-                {!item.isRead && (
-                    <Pressable style={styles.markRead} onPress={onMarkRead}>
-                        <Text style={styles.markText}>Mark as read</Text>
-                    </Pressable>
-                )}
-            </View>
-        </Pressable>
-    );
-}
+type TabType = 'all' | 'unread' | 'read';
 
 export function NotificationsScreen({ navigation }: Props) {
+    const [activeTab, setActiveTab] = useState<TabType>('all');
     const [items, setItems] = useState<NotificationItem[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        let cancelled = false;
-        const load = async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                const data = await api.getNotificationList();
-                if (!cancelled) setItems(data);
-            } catch {
-                if (!cancelled) setError('Unable to load notifications.');
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
-        };
-        void load();
-        return () => { cancelled = true; };
-    }, []);
-
-    async function markRead(id: string) {
+    async function loadNotifications() {
         try {
-            await api.markNotificationRead(id);
-            setItems((prev) => prev.map((it) => (it.id === id ? { ...it, isRead: true } : it)));
+            const data = await api.getNotificationList();
+            setItems(data);
         } catch {
-            // non-fatal
+            // Handled
+        } finally {
+            setLoading(false);
         }
     }
 
-    function openOutage(item: NotificationItem) {
-        if (!item.outageId) return;
-        navigation.navigate('OutageDetails', { outageId: item.outageId });
+    useEffect(() => {
+        void loadNotifications();
+    }, []);
+
+    const filteredItems = items.filter((item) => {
+        if (activeTab === 'unread') return !item.isRead;
+        if (activeTab === 'read') return item.isRead;
+        return true;
+    });
+
+    async function handleNotificationPress(item: NotificationItem) {
+        if (!item.isRead) {
+            await api.markNotificationRead(item.id);
+            setItems((prev) =>
+                prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
+            );
+        }
+        if (item.outageId && item.outageId.startsWith('outage-')) {
+            navigation.navigate('OutageDetails', { outageId: item.outageId });
+        }
     }
 
     return (
-        <SafeAreaView style={styles.container}>
-            <View style={styles.header}>
-                <Text style={styles.sectionTitle}>Notifications</Text>
+        <SafeAreaView style={styles.safeArea}>
+            <AppHeader
+                title="Alerts"
+                showBack
+                onBack={() => navigation.goBack()}
+            />
+
+            <View style={styles.container}>
+                {/* Tabs: All / Unread / Read */}
+                <View style={styles.tabBar}>
+                    <Pressable
+                        style={[styles.tabButton, activeTab === 'all' && styles.tabButtonActive]}
+                        onPress={() => setActiveTab('all')}
+                    >
+                        <Text style={[styles.tabText, activeTab === 'all' && styles.tabTextActive]}>
+                            All
+                        </Text>
+                    </Pressable>
+
+                    <Pressable
+                        style={[styles.tabButton, activeTab === 'unread' && styles.tabButtonActive]}
+                        onPress={() => setActiveTab('unread')}
+                    >
+                        <Text style={[styles.tabText, activeTab === 'unread' && styles.tabTextActive]}>
+                            Unread
+                        </Text>
+                    </Pressable>
+
+                    <Pressable
+                        style={[styles.tabButton, activeTab === 'read' && styles.tabButtonActive]}
+                        onPress={() => setActiveTab('read')}
+                    >
+                        <Text style={[styles.tabText, activeTab === 'read' && styles.tabTextActive]}>
+                            Read
+                        </Text>
+                    </Pressable>
+                </View>
+
+                {/* Notifications List */}
+                {loading ? (
+                    <LoadingState message="Loading alerts..." />
+                ) : filteredItems.length === 0 ? (
+                    <EmptyState
+                        title="No notifications"
+                        description="You're all caught up with utility updates."
+                        buttonTitle=""
+                    />
+                ) : (
+                    <FlatList
+                        data={filteredItems}
+                        keyExtractor={(item) => item.id}
+                        contentContainerStyle={styles.listContent}
+                        renderItem={({ item }) => (
+                            <NotificationCard
+                                notification={item}
+                                onPress={() => void handleNotificationPress(item)}
+                            />
+                        )}
+                        showsVerticalScrollIndicator={false}
+                    />
+                )}
             </View>
-            {loading ? (
-                <ActivityIndicator style={styles.loader} />
-            ) : error ? (
-                <View style={styles.empty}><Text style={styles.emptyText}>{error}</Text></View>
-            ) : items.length === 0 ? (
-                <View style={styles.empty}><Text style={styles.emptyText}>No notifications yet. Outage alerts will appear here.</Text></View>
-            ) : (
-                <FlatList
-                    data={items}
-                    keyExtractor={(item) => item.id}
-                    renderItem={({ item }) => (
-                        <NotificationCard
-                            item={item}
-                            onPress={() => openOutage(item)}
-                            onMarkRead={() => markRead(item.id)}
-                        />
-                    )}
-                    contentContainerStyle={styles.list}
-                />
-            )}
+
+            <BottomNavigation
+                activeTab="More"
+                onTabPress={(tab) => {
+                    if (tab === 'Home') navigation.navigate('Home');
+                    else if (tab === 'Outages') navigation.navigate('Outages');
+                    else if (tab === 'Subscriptions') navigation.navigate('Subscriptions');
+                    else if (tab === 'Reports') navigation.navigate('Reports');
+                    else if (tab === 'More') navigation.navigate('Profile');
+                }}
+            />
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f7fafc' },
-    header: { padding: 16 },
-    sectionTitle: { fontSize: 22, fontWeight: '700', color: '#123047' },
-    loader: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-    emptyText: { color: '#526674', textAlign: 'center' },
-    list: { padding: 12 },
-    card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#e2e8f0' },
-    cardUnread: { borderLeftColor: '#087f8c', borderLeftWidth: 4 },
-    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-    cardTitle: { fontSize: 16, fontWeight: '700', color: '#123047', flex: 1 },
-    unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#087f8c' },
-    cardMessage: { color: '#526674', lineHeight: 20, marginBottom: 8 },
-    cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    cardMeta: { color: '#526674', fontSize: 13 },
-    markRead: { backgroundColor: '#f7fafc', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6, borderWidth: 1, borderColor: '#d8e1e8' },
-    markText: { color: '#087f8c', fontWeight: '600', fontSize: 13 },
+    safeArea: {
+        flex: 1,
+        backgroundColor: colors.headerBg,
+    },
+    container: {
+        flex: 1,
+        backgroundColor: colors.background,
+    },
+    tabBar: {
+        flexDirection: 'row',
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    tabButton: {
+        flex: 1,
+        paddingVertical: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderBottomWidth: 2.5,
+        borderBottomColor: 'transparent',
+    },
+    tabButtonActive: {
+        borderBottomColor: colors.primary,
+    },
+    tabText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: colors.textSecondary,
+    },
+    tabTextActive: {
+        color: colors.primary,
+        fontWeight: '700',
+    },
+    listContent: {
+        padding: 16,
+        paddingBottom: 24,
+    },
 });

@@ -1,207 +1,327 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-    ActivityIndicator,
+    View,
+    Text,
+    StyleSheet,
     FlatList,
     Pressable,
     SafeAreaView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+    Modal,
+    ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
-import { api, Location, Subscription, Utility } from '../api/client';
+import { colors } from '../theme/colors';
+import { AppHeader } from '../components/AppHeader';
+import { BottomNavigation } from '../components/BottomNavigation';
+import { SubscriptionCard } from '../components/SubscriptionCard';
+import { LoadingState } from '../components/LoadingState';
+import { EmptyState } from '../components/EmptyState';
+import { Icon } from '../components/Icon';
+import { api, Subscription } from '../api/client';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Subscriptions'>;
-
-type Segment = 'list' | 'subscribe';
-
-function SubCard({ subscription, onUnsubscribe }: { subscription: Subscription; onUnsubscribe: () => void }) {
-    const location = subscription.location;
-    const utility = subscription.utility;
-    return (
-        <View style={styles.card}>
-            <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{utility?.name || 'Utility'} — {location?.district || 'Location'}</Text>
-                <Text style={styles.cardMeta}>{location ? `${location.province}${location.sector ? ', ' + location.sector : ''}` : ''}</Text>
-            </View>
-            <Pressable style={styles.unsubscribe} onPress={onUnsubscribe}>
-                <Text style={styles.unsubscribeText}>Unsubscribe</Text>
-            </Pressable>
-        </View>
-    );
-}
-
-function OptionRow({ label, onPress }: { label: string; onPress: () => void }) {
-    return (
-        <Pressable style={styles.option} onPress={onPress}>
-            <Text style={styles.optionLabel}>{label}</Text>
-        </Pressable>
-    );
-}
+type TabType = 'my' | 'available';
 
 export function SubscriptionsScreen({ navigation }: Props) {
-    const [segment, setSegment] = useState<Segment>('list');
+    const [activeTab, setActiveTab] = useState<TabType>('my');
     const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [locations, setLocations] = useState<Location[]>([]);
-    const [utilities, setUtilities] = useState<Utility[]>([]);
-    const [loadingOptions, setLoadingOptions] = useState(true);
-    const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
-    const [selectedUtilityId, setSelectedUtilityId] = useState<string | null>(null);
-    const [creating, setCreating] = useState(false);
-    const [createError, setCreateError] = useState<string | null>(null);
+    const [selectedSub, setSelectedSub] = useState<Subscription | null>(null);
+    const [deleting, setDeleting] = useState(false);
 
-    const loadList = useCallback(async () => {
+    const loadSubscriptions = useCallback(async () => {
+        setLoading(true);
         try {
             const data = await api.getSubscriptions();
             setSubscriptions(data);
         } catch {
-            setError('Unable to load subscriptions.');
+            // Keep state
         } finally {
             setLoading(false);
         }
     }, []);
 
-    const loadOptions = useCallback(async () => {
-        try {
-            const [locs, utils] = await Promise.all([api.getLocations(), api.getUtilities()]);
-            setLocations(locs);
-            setUtilities(utils);
-        } catch {
-            setError('Unable to load locations or utilities.');
-        } finally {
-            setLoadingOptions(false);
-        }
-    }, []);
+    useEffect(() => {
+        const unsubscribe = navigation.addListener('focus', () => {
+            void loadSubscriptions();
+        });
+        void loadSubscriptions();
+        return unsubscribe;
+    }, [navigation, loadSubscriptions]);
 
-    useEffect(() => { void loadList(); }, [loadList]);
-    useEffect(() => { void loadOptions(); }, [loadOptions]);
-
-    async function onCreate() {
-        if (!selectedLocationId || !selectedUtilityId) return;
-        setCreateError(null);
-        setCreating(true);
+    async function handleRemoveSubscription() {
+        if (!selectedSub) return;
+        setDeleting(true);
         try {
-            await api.createSubscription(selectedLocationId, selectedUtilityId);
-            setSelectedLocationId(null);
-            setSelectedUtilityId(null);
-            setSegment('list');
-            await loadList();
+            await api.deleteSubscription(selectedSub.id);
+            setSubscriptions((prev) => prev.filter((s) => s.id !== selectedSub.id));
+            setSelectedSub(null);
         } catch (err) {
-            setCreateError(err instanceof Error ? err.message : 'Unable to subscribe.');
+            console.error('Failed to remove subscription:', err);
         } finally {
-            setCreating(false);
+            setDeleting(false);
         }
     }
-
-    async function onUnsubscribe(id: string) {
-        try {
-            await api.deleteSubscription(id);
-            setSubscriptions((prev) => prev.filter((s) => s.id !== id));
-        } catch {
-            // keep list as is, error is non-fatal
-        }
-    }
-
-    const locationOptions = locations.map((loc) => ({
-        label: loc.sector ? `${loc.district} — ${loc.sector}` : loc.district,
-        value: loc.id,
-    }));
-    const utilityOptions = utilities.map((u) => ({ label: u.name, value: u.id }));
 
     return (
-        <SafeAreaView style={styles.container}>
-            {segment === 'list' ? (
-                <>
-                    <View style={styles.header}>
-                        <Text style={styles.sectionTitle}>Your subscriptions</Text>
-                        <Pressable style={styles.addButton} onPress={() => setSegment('subscribe')}>
-                            <Text style={styles.addButtonText}>Subscribe to a location</Text>
-                        </Pressable>
-                    </View>
-                    {loading ? (
-                        <ActivityIndicator style={styles.loader} />
-                    ) : error ? (
-                        <View style={styles.empty}><Text style={styles.emptyText}>{error}</Text></View>
-                    ) : subscriptions.length === 0 ? (
-                        <View style={styles.empty}><Text style={styles.emptyText}>No subscriptions yet. Subscribe to a location to receive alerts.</Text></View>
-                    ) : (
+        <SafeAreaView style={styles.safeArea}>
+            <AppHeader
+                title="Subscriptions"
+                showBack
+                onBack={() => navigation.navigate('Home')}
+            />
+
+            <View style={styles.container}>
+                {/* Tabs: My Subscriptions / Available */}
+                <View style={styles.tabBar}>
+                    <Pressable
+                        style={[styles.tabButton, activeTab === 'my' && styles.tabButtonActive]}
+                        onPress={() => setActiveTab('my')}
+                    >
+                        <Text style={[styles.tabText, activeTab === 'my' && styles.tabTextActive]}>
+                            My Subscriptions ({subscriptions.length})
+                        </Text>
+                    </Pressable>
+
+                    <Pressable
+                        style={[styles.tabButton, activeTab === 'available' && styles.tabButtonActive]}
+                        onPress={() => setActiveTab('available')}
+                    >
+                        <Text style={[styles.tabText, activeTab === 'available' && styles.tabTextActive]}>
+                            Available
+                        </Text>
+                    </Pressable>
+                </View>
+
+                {/* Subscriptions List */}
+                {loading ? (
+                    <LoadingState message="Loading subscriptions..." />
+                ) : activeTab === 'my' && subscriptions.length === 0 ? (
+                    <EmptyState
+                        title="No subscriptions yet"
+                        description="Subscribe to your home or office neighborhood to receive outage alerts."
+                        buttonTitle="+ Add Subscription"
+                        onButtonPress={() => navigation.navigate('AddSubscription')}
+                    />
+                ) : (
+                    <View style={styles.content}>
                         <FlatList
                             data={subscriptions}
                             keyExtractor={(item) => item.id}
+                            contentContainerStyle={styles.listContent}
                             renderItem={({ item }) => (
-                                <SubCard subscription={item} onUnsubscribe={() => onUnsubscribe(item.id)} />
+                                <SubscriptionCard
+                                    subscription={item}
+                                    onManage={() => setSelectedSub(item)}
+                                />
                             )}
-                            contentContainerStyle={styles.list}
+                            showsVerticalScrollIndicator={false}
                         />
-                    )}
-                </>
-            ) : (
-                <View style={styles.form}>
-                    <Text style={styles.sectionTitle}>Subscribe</Text>
-                    <Text style={styles.formLabel}>Utility</Text>
-                    <View style={styles.options}>
-                        {utilityOptions.map((opt) => (
-                            <OptionRow
-                                key={opt.value}
-                                label={opt.label}
-                                onPress={() => setSelectedUtilityId(selectedUtilityId === opt.value ? null : opt.value)}
-                            />
-                        ))}
+
+                        {/* + Add Subscription Button */}
+                        <View style={styles.bottomCtaContainer}>
+                            <Pressable
+                                style={({ pressed }) => [styles.addBtn, pressed && styles.btnPressed]}
+                                onPress={() => navigation.navigate('AddSubscription')}
+                            >
+                                <Icon name="plus" size={18} color="#FFFFFF" />
+                                <Text style={styles.addBtnText}>Add Subscription</Text>
+                            </Pressable>
+                        </View>
                     </View>
-                    {selectedUtilityId && (
-                        <Text style={styles.formLabel}>Location</Text>
-                    )}
-                    <View style={styles.options}>
-                        {locationOptions.map((opt) => (
-                            <OptionRow
-                                key={opt.value}
-                                label={opt.label}
-                                onPress={() => setSelectedLocationId(selectedLocationId === opt.value ? null : opt.value)}
-                            />
-                        ))}
+                )}
+            </View>
+
+            {/* Manage / Remove Subscription Modal */}
+            <Modal visible={!!selectedSub} transparent animationType="fade">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalCard}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Manage Subscription</Text>
+                            <Pressable onPress={() => setSelectedSub(null)} hitSlop={10}>
+                                <Icon name="close" size={20} color={colors.textSecondary} />
+                            </Pressable>
+                        </View>
+
+                        <Text style={styles.modalSubDesc}>
+                            {selectedSub?.location?.district} — {selectedSub?.utility?.name}
+                        </Text>
+                        <Text style={styles.modalPrompt}>
+                            Do you want to stop receiving utility outage alerts for this location?
+                        </Text>
+
+                        <View style={styles.modalActionsRow}>
+                            <Pressable
+                                style={styles.cancelBtn}
+                                onPress={() => setSelectedSub(null)}
+                                disabled={deleting}
+                            >
+                                <Text style={styles.cancelBtnText}>Keep</Text>
+                            </Pressable>
+
+                            <Pressable
+                                style={styles.deleteBtn}
+                                onPress={() => void handleRemoveSubscription()}
+                                disabled={deleting}
+                            >
+                                {deleting ? (
+                                    <ActivityIndicator color="#FFFFFF" size="small" />
+                                ) : (
+                                    <Text style={styles.deleteBtnText}>Remove</Text>
+                                )}
+                            </Pressable>
+                        </View>
                     </View>
-                    {createError ? <Text style={styles.errorText}>{createError}</Text> : null}
-                    <Pressable style={!selectedLocationId || !selectedUtilityId ? styles.submitDisabled : styles.submit} onPress={onCreate} disabled={!selectedLocationId || !selectedUtilityId}>
-                        <Text style={styles.submitText}>{creating ? 'Subscribing...' : 'Subscribe'}</Text>
-                    </Pressable>
-                    <Pressable style={styles.backButton} onPress={() => setSegment('list')}>
-                        <Text style={styles.backButtonText}>Back to subscriptions</Text>
-                    </Pressable>
                 </View>
-            )}
+            </Modal>
+
+            <BottomNavigation
+                activeTab="Subscriptions"
+                onTabPress={(tab) => {
+                    if (tab === 'Home') navigation.navigate('Home');
+                    else if (tab === 'Outages') navigation.navigate('Outages');
+                    else if (tab === 'Reports') navigation.navigate('Reports');
+                    else if (tab === 'More') navigation.navigate('Profile');
+                }}
+            />
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f7fafc' },
-    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, gap: 12 },
-    sectionTitle: { fontSize: 22, fontWeight: '700', color: '#123047' },
-    addButton: { backgroundColor: '#087f8c', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 },
-    addButtonText: { color: '#fff', fontWeight: '600' },
-    loader: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-    emptyText: { color: '#526674', textAlign: 'center' },
-    list: { padding: 12 },
-    card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#e2e8f0' },
-    cardHeader: { marginBottom: 10 },
-    cardTitle: { fontSize: 16, fontWeight: '700', color: '#123047' },
-    cardMeta: { color: '#526674', marginTop: 4 },
-    unsubscribe: { marginTop: 4, alignSelf: 'flex-start', backgroundColor: '#f7fafc', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: '#d8e1e8' },
-    unsubscribeText: { color: '#b42318', fontWeight: '600' },
-    form: { flex: 1, padding: 16 },
-    formLabel: { fontSize: 14, fontWeight: '700', color: '#123047', marginTop: 12, marginBottom: 6 },
-    options: { gap: 8 },
-    option: { backgroundColor: '#fff', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-    optionLabel: { fontSize: 15, color: '#123047' },
-    errorText: { color: '#b42318', marginTop: 12 },
-    submit: { marginTop: 16, backgroundColor: '#123047', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
-    submitDisabled: { backgroundColor: '#cbd5e1' },
-    submitText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-    backButton: { marginTop: 12, alignItems: 'center' },
-    backButtonText: { color: '#087f8c', fontWeight: '600' },
+    safeArea: {
+        flex: 1,
+        backgroundColor: colors.headerBg,
+    },
+    container: {
+        flex: 1,
+        backgroundColor: colors.background,
+    },
+    tabBar: {
+        flexDirection: 'row',
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    tabButton: {
+        flex: 1,
+        paddingVertical: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderBottomWidth: 2.5,
+        borderBottomColor: 'transparent',
+    },
+    tabButtonActive: {
+        borderBottomColor: colors.primary,
+    },
+    tabText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: colors.textSecondary,
+    },
+    tabTextActive: {
+        color: colors.primary,
+        fontWeight: '700',
+    },
+    content: {
+        flex: 1,
+    },
+    listContent: {
+        padding: 16,
+        paddingBottom: 80,
+    },
+    bottomCtaContainer: {
+        position: 'absolute',
+        bottom: 16,
+        left: 16,
+        right: 16,
+    },
+    addBtn: {
+        backgroundColor: colors.primary,
+        borderRadius: 8,
+        height: 48,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    btnPressed: {
+        opacity: 0.9,
+    },
+    addBtnText: {
+        color: '#FFFFFF',
+        fontWeight: '700',
+        fontSize: 15,
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.45)',
+        justifyContent: 'center',
+        padding: 24,
+    },
+    modalCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 14,
+        padding: 20,
+        gap: 12,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    modalTitle: {
+        fontSize: 17,
+        fontWeight: '700',
+        color: colors.textPrimary,
+    },
+    modalSubDesc: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: colors.primary,
+        marginTop: 4,
+    },
+    modalPrompt: {
+        fontSize: 13,
+        color: colors.textSecondary,
+        lineHeight: 18,
+    },
+    modalActionsRow: {
+        flexDirection: 'row',
+        gap: 12,
+        marginTop: 8,
+    },
+    cancelBtn: {
+        flex: 1,
+        paddingVertical: 11,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.borderDark,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    cancelBtnText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: colors.textPrimary,
+    },
+    deleteBtn: {
+        flex: 1,
+        backgroundColor: colors.logoutRed,
+        paddingVertical: 11,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    deleteBtnText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#FFFFFF',
+    },
 });
