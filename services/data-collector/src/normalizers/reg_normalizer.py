@@ -4,6 +4,7 @@ import re
 from src.models import OutageData
 from src.normalizers.outage_normalizer import OutageNormalizer
 from src.parsers.datetime_parser import DateTimeParser
+from src.rwanda_locations import expand_district
 
 logger = logging.getLogger("reg-normalizer")
 
@@ -15,9 +16,9 @@ class RegNormalizer:
     UTILITY_CODE = "ELECTRICITY"
 
     DISTRICT_PROVINCES = {
-        "Gasabo": "Kigali City",
-        "Kicukiro": "Kigali City",
-        "Nyarugenge": "Kigali City",
+        "Gasabo": "City of Kigali",
+        "Kicukiro": "City of Kigali",
+        "Nyarugenge": "City of Kigali",
 
         "Bugesera": "Eastern Province",
         "Gatsibo": "Eastern Province",
@@ -61,11 +62,14 @@ class RegNormalizer:
         districts: list[str] = []
 
         for token in tokens:
-            segment = re.split(r"\s*;\s*", token)
+            segment = re.split(r"\s*;\s*|\s+and\s+", token)
             for item in segment:
-                cleaned = item.strip()
-                if cleaned:
-                    districts.append(cleaned)
+                cleaned = re.sub(r"\s+districts?$", "", item.strip(), flags=re.IGNORECASE)
+                if not cleaned:
+                    continue
+                for district in expand_district(cleaned):
+                    if district not in districts:
+                        districts.append(district)
 
         return districts
 
@@ -103,38 +107,27 @@ class RegNormalizer:
         cls,
         row: dict,
         source_url: str,
-        year: int,
+        year: int | None = None,
     ) -> list[OutageData]:
+        """Normalizes one REG table row into one outage per affected district.
+
+        `year` is only a fallback: REG writes the year in the date column
+        ("29th September 2026"), and when it is missing the year is inferred
+        from today's date in Kigali.
+        """
 
         results = []
 
-        status = (row.get("status") or "planned").strip()
-        normalized_status = "planned" if status.lower(
-        ) in {"planned", "current", "ongoing", "active", "scheduled"} else "planned"
+        status = (row.get("status") or "planned").strip().lower()
+        normalized_status = "active" if status in {"current", "ongoing", "active"} else "planned"
 
         if not row.get("date") or not row.get("time"):
             raise ValueError(f"Missing date/time for REG outage row: {row}")
 
-        start_text, end_text = (
-            DateTimeParser.parse_time_range(
-                row["time"]
-            )
-        )
-
-        start_time = (
-            DateTimeParser.build_datetime(
-                row["date"],
-                start_text,
-                year,
-            )
-        )
-
-        end_time = (
-            DateTimeParser.build_datetime(
-                row["date"],
-                end_text,
-                year,
-            )
+        start_time, end_time = DateTimeParser.build_range(
+            row["date"],
+            row["time"],
+            year,
         )
 
         districts = cls.split_districts(row.get("districts") or "")
@@ -156,7 +149,9 @@ class RegNormalizer:
                     district_to_areas[district] = (
                         row.get("areas") or "").strip()
                 else:
-                    raise
+                    # No area segment names this district: keep it at
+                    # district level rather than dropping the whole row.
+                    district_to_areas[district] = ""
 
         for district in districts:
 
@@ -169,6 +164,8 @@ class RegNormalizer:
                     "Unknown Province",
                 )
             )
+            reason = (row.get("reason") or "").strip().rstrip(".")
+            reason = reason[:1].upper() + reason[1:] if reason else "Not specified"
 
             external_source = (
                 f"{source_url}|"
@@ -192,7 +189,7 @@ class RegNormalizer:
                     f"interruption in {district}"
                 ),
                 description=(
-                    f"Reason: {row['reason']}. "
+                    f"Reason: {reason}. "
                     f"Affected areas: "
                     f"{area_detail or row.get('areas') or 'Not specified'}."
                 ),

@@ -1,19 +1,18 @@
-const TIME_ZONE = 'Africa/Kigali';
+// Rwanda uses Central Africa Time: a fixed UTC+2 offset with no daylight
+// saving, so formatting by offset is exact and independent of ICU data.
+const KIGALI_OFFSET_MS = 2 * 60 * 60 * 1000;
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const dayFormat = new Intl.DateTimeFormat('en-GB', {
-    timeZone: TIME_ZONE,
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-});
+const pad = (value: number) => String(value).padStart(2, '0');
 
-const timeFormat = new Intl.DateTimeFormat('en-GB', {
-    timeZone: TIME_ZONE,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-});
+function kigaliParts(date: Date) {
+    const local = new Date(date.getTime() + KIGALI_OFFSET_MS);
+    return {
+        day: `${DAYS[local.getUTCDay()]} ${local.getUTCDate()} ${MONTHS[local.getUTCMonth()]} ${local.getUTCFullYear()}`,
+        time: `${pad(local.getUTCHours())}:${pad(local.getUTCMinutes())}`,
+    };
+}
 
 /**
  * Human-readable outage window in Rwanda time, e.g.
@@ -22,20 +21,18 @@ const timeFormat = new Intl.DateTimeFormat('en-GB', {
 export function formatKigaliRange(start: Date | null | undefined, end: Date | null | undefined): string | null {
     if (!start || Number.isNaN(start.getTime())) return null;
 
-    const startDay = dayFormat.format(start);
-    const startTime = timeFormat.format(start);
+    const from = kigaliParts(start);
 
     if (!end || Number.isNaN(end.getTime())) {
-        return `${startDay}, from ${startTime} (Kigali time)`;
+        return `${from.day}, from ${from.time} (Kigali time)`;
     }
 
-    const endDay = dayFormat.format(end);
-    const endTime = timeFormat.format(end);
+    const to = kigaliParts(end);
 
-    if (startDay === endDay) {
-        if (startTime === '00:00' && endTime === '23:59') return `${startDay}, all day`;
-        return `${startDay}, ${startTime}–${endTime} (Kigali time)`;
+    if (from.day === to.day) {
+        if (from.time === '00:00' && to.time === '23:59') return `${from.day}, all day`;
+        return `${from.day}, ${from.time}–${to.time} (Kigali time)`;
     }
 
-    return `${startDay} ${startTime} – ${endDay} ${endTime} (Kigali time)`;
+    return `${from.day} ${from.time} – ${to.day} ${to.time} (Kigali time)`;
 }

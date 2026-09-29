@@ -1,5 +1,9 @@
+"""Rwanda's provinces and districts (2006 territorial reform: 5 provinces, 30 districts)."""
+
+import re
+
 PROVINCES = [
-    "Kigali City",
+    "City of Kigali",
     "Eastern Province",
     "Northern Province",
     "Southern Province",
@@ -7,7 +11,7 @@ PROVINCES = [
 ]
 
 DISTRICTS = {
-    "Kigali City": ["Gasabo", "Kicukiro", "Nyarugenge"],
+    "City of Kigali": ["Gasabo", "Kicukiro", "Nyarugenge"],
     "Eastern Province": [
         "Bugesera",
         "Gatsibo",
@@ -45,36 +49,29 @@ DISTRICTS = {
     ],
 }
 
+KIGALI_DISTRICTS = DISTRICTS["City of Kigali"]
+
+# Lower-case district name -> canonical district name.
 DISTRICT_ALIASES = {
-    "kigali": "Kigali City",
-    "gasabo": "Gasabo",
-    "kicukiro": "Kicukiro",
-    "nyarugenge": "Nyarugenge",
-    "bugesera": "Bugesera",
-    "gatsibo": "Gatsibo",
-    "kayonza": "Kayonza",
-    "kirehe": "Kirehe",
-    "ngoma": "Ngoma",
-    "nyagatare": "Nyagatare",
-    "rwamagana": "Rwamagana",
-    "burera": "Burera",
-    "gakenke": "Gakenke",
-    "gicumbi": "Gicumbi",
-    "musanze": "Musanze",
-    "rulindo": "Rulindo",
-    "gisagara": "Gisagara",
-    "huye": "Huye",
-    "kamonyi": "Kamonyi",
-    "muhanga": "Muhanga",
-    "nyamagabe": "Nyamagabe",
-    "nyanza": "Nyanza",
-    "nyaruguru": "Nyaruguru",
-    "ruhango": "Ruhango",
-    "karongi": "Karongi",
-    "ngororero": "Ngororero",
-    "nyabihu": "Nyabihu",
-    "nyamasheke": "Nyamasheke",
-    "rubavu": "Rubavu",
-    "rusizi": "Rusizi",
-    "rutsiro": "Rutsiro",
+    district.lower(): district
+    for districts in DISTRICTS.values()
+    for district in districts
 }
+
+# Names that refer to the whole City of Kigali rather than a single district.
+KIGALI_CITY_NAMES = {"kigali", "kigali city", "city of kigali", "umujyi wa kigali"}
+
+
+def expand_district(value: str) -> list[str]:
+    """Canonical district names for a district mention.
+
+    "City of Kigali" / "Kigali" expand to its three districts; unknown names
+    are returned unchanged so callers can log them as unresolved.
+    """
+    key = re.sub(r"\s+", " ", (value or "").strip().lower())
+    key = re.sub(r"\s+districts?$", "", key)
+    if not key:
+        return []
+    if key in KIGALI_CITY_NAMES:
+        return list(KIGALI_DISTRICTS)
+    return [DISTRICT_ALIASES.get(key, value.strip())]

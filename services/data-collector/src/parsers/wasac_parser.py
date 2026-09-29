@@ -5,7 +5,8 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from src.rwanda_locations import DISTRICTS
+from src.rwanda_locations import DISTRICT_ALIASES, DISTRICTS, KIGALI_DISTRICTS
+from src.timezone import KIGALI_TZ, kigali_today
 
 
 class WasacParser:
@@ -59,6 +60,7 @@ class WasacParser:
 
     @classmethod
     def parse_date(cls, text: str) -> datetime | None:
+        """Start of the announced day (00:00 Kigali time), e.g. "23 September 2026"."""
         match = re.search(
             r"\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+),?\s+(\d{4})\b",
             text,
@@ -71,34 +73,45 @@ class WasacParser:
         if not month:
             return None
 
-        return datetime(int(match.group(3)), month, int(match.group(1)))
+        try:
+            return datetime(int(match.group(3)), month, int(match.group(1)), tzinfo=KIGALI_TZ)
+        except ValueError:
+            return None
 
     @classmethod
     def extract_districts(cls, text: str) -> list[str]:
         lower = text.lower()
-        if "city of kigali" in lower:
-            return ["Kigali City"]
-
         districts = [
             district
             for district_names in DISTRICTS.values()
             for district in district_names
             if re.search(rf"\b{re.escape(district.lower())}\b", lower)
         ]
-        return list(dict.fromkeys(districts))
+        if districts:
+            return list(dict.fromkeys(districts))
+
+        # A city-wide announcement covers all three Kigali districts.
+        if re.search(r"\b(city of kigali|kigali city|umujyi wa kigali)\b", lower):
+            return list(KIGALI_DISTRICTS)
+
+        return []
 
     @staticmethod
     def extract_areas(text: str) -> dict[str, str]:
+        """Maps district -> area text for phrases like "Remera and Kimironko in Gasabo"."""
         areas: dict[str, str] = {}
-        for segment in re.split(r"\s*;\s*", text):
-            match = re.search(
+        for segment in re.split(r"\s*;\s*|\.\s+", text):
+            for match in re.finditer(
                 r"(?P<areas>[A-Za-z][A-Za-z0-9 ,/&'’-]+?)\s+in\s+(?P<district>[A-Za-z]+)",
                 segment,
                 flags=re.IGNORECASE,
-            )
-            if match:
-                areas[match.group("district").strip()] = match.group(
-                    "areas").strip(" ,")
+            ):
+                district = DISTRICT_ALIASES.get(match.group("district").lower())
+                if not district:
+                    continue
+                area_text = re.sub(r"^.*?:\s*", "", match.group("areas")).strip(" ,")
+                if area_text:
+                    areas[district] = area_text
         return areas
 
     @classmethod
@@ -115,7 +128,7 @@ class WasacParser:
     @classmethod
     def parse(cls, html: str, reference_date: date | None = None) -> list[dict]:
         soup = BeautifulSoup(html, "html.parser")
-        today = reference_date or date.today()
+        today = reference_date or kigali_today()
         results: list[dict] = []
 
         for card in soup.select("a.announcement[data-category]"):
@@ -142,7 +155,7 @@ class WasacParser:
             if not cls.is_genuine_interruption(title, summary, category):
                 continue
 
-            event_date = cls.parse_date(title)
+            event_date = cls.parse_date(title) or cls.parse_date(summary)
             status = "planned"
             if event_date and event_date.date() < today:
                 status = "completed"

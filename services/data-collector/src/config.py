@@ -14,7 +14,7 @@ class Settings:
 
     COLLECTOR_API_KEY = os.getenv(
         "COLLECTOR_API_KEY",
-        "utility-alerts-collector-2026-secret",
+        "",
     )
 
     REG_BASE_URL = os.getenv(
