@@ -203,6 +203,33 @@ function AdminApp({ token, user, onLogout }: { token: string; user: any; onLogou
     }
   }
 
+  async function updateOutageStatus(outageId: string, status: 'planned' | 'active' | 'completed' | 'cancelled') {
+    try {
+      setLoading(true);
+      setError('');
+      setNotice('');
+      const response = await fetch(`${API_URL}/outages/${outageId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status }),
+      });
+      if (response.status === 401 || response.status === 403) throw new Error('Your admin session is no longer authorized.');
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        throw new Error(detail.message || `Unable to mark outage as ${status}.`);
+      }
+      setNotice(`Outage marked as ${status}.`);
+      await load('outages');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to update outage.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return <div className="app-shell">
     <aside className={`sidebar ${mobileNav ? 'open' : ''}`}>
       <div className="brand"><div className="brand-mark">RU</div><h1>Utility Alerts</h1><p>Operations console</p></div>
@@ -267,7 +294,7 @@ function AdminApp({ token, user, onLogout }: { token: string; user: any; onLogou
               {filteredRows.length > pageSize && <div className="pager"><button className="icon-button" disabled={page === 1} onClick={() => setPage(page - 1)}><ChevronLeft size={14} /> Prev</button><span className="page-current">Page {page} / {totalPages}</span><button className="icon-button" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next <ChevronRight size={14} /></button></div>}
             </div>
           </div>
-          {selectedRow && <div className="details-panel"><div className="details-head"><div><div className="eyebrow">Selected record</div><h4>{selectedRow.title ?? selectedRow.name ?? selectedRow.firstName ?? 'Details'}</h4></div><button className="icon-button" onClick={() => setSelectedRow(null)}><X size={14} /> Close</button></div><div className="detail-grid">{Object.entries(selectedRow).filter(([key]) => !protectedKeys.has(key)).slice(0, 12).map(([key, value]) => <div className="detail-card" key={key}><span className="detail-label">{formatColumn(key)}</span><span className="detail-value">{formatValue(value)}</span></div>)}</div>{view === 'reports' && <div className="actions-row">{['verified', 'rejected', 'resolved'].map((action) => <button key={action} className="mini-button" onClick={() => moderateReport(selectedRow.id, action as 'verified' | 'rejected' | 'resolved')}>{action === 'verified' ? <CheckCircle2 size={14} /> : <XCircle size={14} />}{formatColumn(action)}</button>)}</div>}</div>}
+          {selectedRow && <div className="details-panel"><div className="details-head"><div><div className="eyebrow">Selected record</div><h4>{selectedRow.title ?? selectedRow.name ?? selectedRow.firstName ?? 'Details'}</h4></div><button className="icon-button" onClick={() => setSelectedRow(null)}><X size={14} /> Close</button></div><div className="detail-grid">{Object.entries(selectedRow).filter(([key]) => !protectedKeys.has(key)).slice(0, 12).map(([key, value]) => <div className="detail-card" key={key}><span className="detail-label">{formatColumn(key)}</span><span className="detail-value">{formatValue(value)}</span></div>)}</div>{view === 'reports' && <div className="actions-row">{['verified', 'rejected', 'resolved'].map((action) => <button key={action} className="mini-button" onClick={() => moderateReport(selectedRow.id, action as 'verified' | 'rejected' | 'resolved')}>{action === 'verified' ? <CheckCircle2 size={14} /> : <XCircle size={14} />}{formatColumn(action)}</button>)}</div>}{view === 'outages' && <div className="status-actions">{(['planned', 'active', 'completed', 'cancelled'] as const).map((status) => <button key={status} className={`mini-button ${selectedRow.status === status ? 'current' : ''}`} disabled={selectedRow.status === status} onClick={() => updateOutageStatus(selectedRow.id, status)}>{status === 'cancelled' ? <XCircle size={14} /> : <CheckCircle2 size={14} />}{formatColumn(status)}</button>)}</div>}</div>}
         </>}
       </main>
     </section>
@@ -278,10 +305,26 @@ function formatColumn(key: string) {
   return key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).replace(/_/g, ' ');
 }
 
+const kigaliDateTime = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Africa/Kigali',
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
 function formatValue(value: any) {
   if (value == null) return '—';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) return `${kigaliDateTime.format(value)} CAT`;
+  // Timestamps are shown in Rwanda time (CAT, UTC+2) rather than raw ISO strings.
+  if (typeof value === 'string' && ISO_DATE.test(value) && !Number.isNaN(Date.parse(value))) {
+    return `${kigaliDateTime.format(new Date(value))} CAT`;
+  }
   if (typeof value === 'object') {
     if ('name' in value) return value.name;
     if ('firstName' in value) return `${value.firstName || ''} ${value.lastName || ''}`.trim();

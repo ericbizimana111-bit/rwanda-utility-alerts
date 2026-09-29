@@ -11,9 +11,13 @@ import { Device } from '../devices/device.entity';
 import { DataSource } from '../data-sources/data-source.entity';
 import { Location } from '../locations/location.entity';
 import { Utility } from '../utilities/utility.entity';
+import { OutagesModule } from '../outages/outages.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, Subscription, Outage, Report, Notification, Device, DataSource, Location, Utility])],
+  imports: [
+    TypeOrmModule.forFeature([User, Subscription, Outage, Report, Notification, Device, DataSource, Location, Utility]),
+    OutagesModule,
+  ],
   controllers: [AdminController],
   providers: [AdminService],
 })

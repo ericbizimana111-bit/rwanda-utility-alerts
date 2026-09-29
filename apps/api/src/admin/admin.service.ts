@@ -10,6 +10,7 @@ import { Device } from '../devices/device.entity';
 import { DataSource } from '../data-sources/data-source.entity';
 import { Location } from '../locations/location.entity';
 import { Utility } from '../utilities/utility.entity';
+import { OutagesService } from '../outages/outages.service';
 
 @Injectable()
 export class AdminService {
@@ -23,19 +24,21 @@ export class AdminService {
 		@InjectRepository(DataSource) private readonly dataSources: Repository<DataSource>,
 		@InjectRepository(Location) private readonly locations: Repository<Location>,
 		@InjectRepository(Utility) private readonly utilities: Repository<Utility>,
+		private readonly outagesService: OutagesService,
 	) { }
 
 	async overview() {
-		const [totalUsers, activeSubscriptions, upcomingOutages, activeOutages, pendingReports, notificationsSent, registeredDevices] = await Promise.all([
+		// Upcoming/active follow the published times, exactly as residents see them.
+		const [totalUsers, activeSubscriptions, upcoming, active, pendingReports, notificationsSent, registeredDevices] = await Promise.all([
 			this.users.count(),
 			this.subscriptions.count({ where: { isActive: true } }),
-			this.outages.count({ where: { status: 'planned' } }),
-			this.outages.count({ where: { status: 'active' } }),
+			this.outagesService.findUpcoming(),
+			this.outagesService.findActive(),
 			this.reports.count({ where: { status: 'pending' } }),
 			this.notifications.count({ where: { status: 'sent' } }),
 			this.devices.count({ where: { isActive: true } }),
 		]);
-		return { totalUsers, activeSubscriptions, upcomingOutages, activeOutages, pendingReports, notificationsSent, registeredDevices };
+		return { totalUsers, activeSubscriptions, upcomingOutages: upcoming.length, activeOutages: active.length, pendingReports, notificationsSent, registeredDevices };
 	}
 
 	async usersList() {

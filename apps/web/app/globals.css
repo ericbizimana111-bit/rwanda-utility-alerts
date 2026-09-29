@@ -1,15 +1,19 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
 
 :root {
-    --ink: #16252d;
-    --muted: #6b7c83;
-    --line: #dbe4e4;
-    --paper: #f6f8f7;
+    /* Aligned with the mobile app: Rwanda Utility Alerts blue + flag accents. */
+    --ink: #0f1b2d;
+    --muted: #5b6b80;
+    --line: #e3e8ef;
+    --paper: #f2f5f9;
     --white: #fff;
-    --teal: #087f8c;
-    --teal-deep: #075b65;
-    --coral: #dc765e;
-    --mint: #e7f3f0;
+    --teal: #0b63c5;
+    --teal-deep: #0a4a96;
+    --coral: #20603d;
+    --mint: #e8f1fc;
+    --flag-blue: #00a1de;
+    --flag-yellow: #fad201;
+    --flag-green: #20603d;
 }
 
 * {
@@ -42,8 +46,10 @@ button {
 .sidebar {
     width: 248px;
     flex: 0 0 248px;
-    background: #102e37;
-    color: #dceceb;
+    background: linear-gradient(180deg, #072f63 0%, #0a4a96 100%);
+    color: #dce8f7;
+    border-right: 4px solid transparent;
+    border-image: linear-gradient(180deg, var(--flag-blue) 0 50%, var(--flag-yellow) 50% 75%, var(--flag-green) 75% 100%) 1;
     padding: 26px 16px;
     display: flex;
     flex-direction: column;
@@ -689,4 +695,16 @@ th {
 
 .empty-state svg {
     color: var(--teal);
+}
+.status-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.status-actions .mini-button.current {
+    background: var(--mint);
+    border-color: var(--teal);
+    color: var(--teal-deep);
 }
