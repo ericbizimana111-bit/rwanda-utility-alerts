@@ -59,7 +59,7 @@ export function OutagesScreen({ navigation, route }: TabScreenProps<'Outages'>) 
                         { value: 'upcoming', label: 'Scheduled', count: data?.upcoming.length },
                         { value: 'active', label: 'In progress', count: data?.active.length },
                     ]}
-                    style={styles.segmented}
+                    onDark
                 />
             </AppHeader>
 
@@ -115,9 +115,6 @@ const styles = StyleSheet.create({
     screen: {
         flex: 1,
         backgroundColor: colors.background,
-    },
-    segmented: {
-        backgroundColor: 'rgba(255,255,255,0.16)',
     },
     filters: {
         paddingTop: 12,

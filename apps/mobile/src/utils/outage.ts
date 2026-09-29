@@ -1,6 +1,6 @@
 import type { Location, Outage, Subscription, Utility } from '../api/client';
 import { colors } from '../theme/colors';
-import { formatDuration, formatRelativeDay, formatClock } from './format';
+import { formatDuration, formatRelativeDay, formatClock, isAllDay, kigaliParts } from './format';
 
 export type UtilityKind = 'electricity' | 'water';
 export type OutagePhase = 'active' | 'upcoming' | 'ended' | 'cancelled';
@@ -67,16 +67,31 @@ export function outageCountdown(outage: Outage, now: Date = new Date()): string 
     const start = time(outage.startTime);
     const end = time(outage.endTime);
 
+    const allDay = isAllDay(outage.startTime, outage.endTime);
+
     if (phase === 'upcoming' && start !== null) {
         const ms = start - now.getTime();
+        const day = formatRelativeDay(new Date(start), now);
+        if (allDay) return day === 'Today' || day === 'Tomorrow' ? `${day}, all day` : `In ${daysUntil(start, now)} days, all day`;
         if (ms < 12 * 60 * 60 * 1000) return `Starts in ${formatDuration(ms)}`;
-        return `${formatRelativeDay(new Date(start), now)} at ${formatClock(new Date(start))}`;
+        if (day === 'Today' || day === 'Tomorrow') return `${day} at ${formatClock(new Date(start))}`;
+        return `Starts in ${daysUntil(start, now)} days`;
     }
     if (phase === 'active') {
+        if (allDay) return 'Today, all day';
         if (end !== null) return `Expected back by ${formatClock(new Date(end))}`;
         return 'End time not announced';
     }
     return null;
+}
+
+/** Whole Kigali calendar days between now and a timestamp. */
+function daysUntil(timestamp: number, now: Date): number {
+    const day = (value: Date) => {
+        const p = kigaliParts(value);
+        return Date.UTC(p.year, p.month, p.day);
+    };
+    return Math.round((day(new Date(timestamp)) - day(now)) / (24 * 60 * 60 * 1000));
 }
 
 /** Planned duration, when both times are published. */

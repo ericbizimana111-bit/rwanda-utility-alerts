@@ -179,15 +179,18 @@ export function SegmentedControl<T extends string>({
     options,
     value,
     onChange,
+    onDark = false,
     style,
 }: {
     options: Array<{ value: T; label: string; count?: number }>;
     value: T;
     onChange: (value: T) => void;
+    /** Light-on-dark styling for use inside gradient headers. */
+    onDark?: boolean;
     style?: StyleProp<ViewStyle>;
 }) {
     return (
-        <View style={[styles.segmented, style]} accessibilityRole="tablist">
+        <View style={[styles.segmented, onDark && styles.segmentedDark, style]} accessibilityRole="tablist">
             {options.map((option) => {
                 const active = option.value === value;
                 return (
@@ -198,12 +201,12 @@ export function SegmentedControl<T extends string>({
                         accessibilityRole="tab"
                         accessibilityState={{ selected: active }}
                     >
-                        <Text style={[styles.segmentText, active && styles.segmentTextActive]} numberOfLines={1}>
+                        <Text style={[styles.segmentText, onDark && !active && styles.segmentTextDark, active && styles.segmentTextActive]} numberOfLines={1}>
                             {option.label}
                         </Text>
                         {option.count !== undefined ? (
-                            <View style={[styles.segmentCount, active && styles.segmentCountActive]}>
-                                <Text style={[styles.segmentCountText, active && styles.segmentCountTextActive]}>{option.count}</Text>
+                            <View style={[styles.segmentCount, onDark && !active && styles.segmentCountDark, active && styles.segmentCountActive]}>
+                                <Text style={[styles.segmentCountText, onDark && !active && styles.segmentTextDark, active && styles.segmentCountTextActive]}>{option.count}</Text>
                             </View>
                         ) : null}
                     </Pressable>
@@ -464,6 +467,15 @@ const styles = StyleSheet.create({
         backgroundColor: '#E6ECF3',
         borderRadius: radius.md,
         padding: 4,
+    },
+    segmentedDark: {
+        backgroundColor: 'rgba(255,255,255,0.14)',
+    },
+    segmentTextDark: {
+        color: 'rgba(255,255,255,0.88)',
+    },
+    segmentCountDark: {
+        backgroundColor: 'rgba(255,255,255,0.18)',
     },
     segment: {
         flex: 1,

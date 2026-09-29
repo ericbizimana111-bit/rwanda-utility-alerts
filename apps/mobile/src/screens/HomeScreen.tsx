@@ -105,7 +105,7 @@ export function HomeScreen({ navigation }: TabScreenProps<'Home'>) {
                         bg={colors.dangerBg}
                         value={data.active.length}
                         label="In progress"
-                        caption="across Rwanda"
+                        caption="nationwide"
                         onPress={() => navigation.navigate('Outages', { phase: 'active' })}
                     />
                     <StatTile
@@ -114,7 +114,7 @@ export function HomeScreen({ navigation }: TabScreenProps<'Home'>) {
                         bg={colors.warningBg}
                         value={data.upcoming.length}
                         label="Scheduled"
-                        caption="upcoming"
+                        caption="nationwide"
                         onPress={() => navigation.navigate('Outages', { phase: 'upcoming' })}
                     />
                     <StatTile

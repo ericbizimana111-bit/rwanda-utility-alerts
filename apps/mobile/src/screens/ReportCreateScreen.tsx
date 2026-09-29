@@ -44,7 +44,7 @@ export function ReportCreateScreen({ route }: TabScreenProps<'Reports'>) {
                         { value: 'submit', label: 'New report' },
                         { value: 'mine', label: 'My reports' },
                     ]}
-                    style={styles.segmented}
+                    onDark
                 />
             </AppHeader>
             {tab === 'submit' ? <SubmitReport onSubmitted={() => setTab('mine')} /> : <MyReports onCreate={() => setTab('submit')} />}
@@ -300,9 +300,6 @@ const styles = StyleSheet.create({
     },
     flex: {
         flex: 1,
-    },
-    segmented: {
-        backgroundColor: 'rgba(255,255,255,0.16)',
     },
     content: {
         padding: 16,

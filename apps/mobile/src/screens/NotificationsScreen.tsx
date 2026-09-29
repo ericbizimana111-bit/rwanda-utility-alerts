@@ -67,7 +67,7 @@ export function NotificationsScreen({ navigation }: RootScreenProps<'Notificatio
                         { value: 'all', label: 'All', count: items.length },
                         { value: 'unread', label: 'Unread', count: unread.length },
                     ]}
-                    style={styles.segmented}
+                    onDark
                 />
             </AppHeader>
 
@@ -102,9 +102,6 @@ const styles = StyleSheet.create({
     screen: {
         flex: 1,
         backgroundColor: colors.background,
-    },
-    segmented: {
-        backgroundColor: 'rgba(255,255,255,0.16)',
     },
     markAll: {
         paddingHorizontal: 12,
