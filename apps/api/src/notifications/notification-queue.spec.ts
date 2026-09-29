@@ -19,7 +19,7 @@ describe('NotificationQueueService', () => {
             PROCESS_OUTAGE_NOTIFICATIONS_JOB,
             { outageId: 'outage-1' },
             expect.objectContaining({
-                jobId: 'outage-notifications:outage-1',
+                jobId: 'outage-notifications-outage-1',
                 attempts: 3,
                 backoff: { type: 'exponential', delay: 1000 },
                 removeOnComplete: true,

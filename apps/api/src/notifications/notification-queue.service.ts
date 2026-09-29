@@ -21,7 +21,8 @@ export class NotificationQueueService {
             PROCESS_OUTAGE_NOTIFICATIONS_JOB,
             { outageId },
             {
-                jobId: `outage-notifications:${outageId}`,
+                // BullMQ rejects custom job IDs containing ':'.
+                jobId: `outage-notifications-${outageId}`,
                 attempts: 3,
                 backoff: {
                     type: 'exponential',

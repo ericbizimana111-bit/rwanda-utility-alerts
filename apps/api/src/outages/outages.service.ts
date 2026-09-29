@@ -2,6 +2,7 @@ import {
     BadRequestException,
     ConflictException,
     Injectable,
+    Logger,
     NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -16,6 +17,7 @@ import { NotificationQueueService } from '../notifications/notification-queue.se
 @Injectable()
 export class OutagesService {
     private static readonly VALID_STATUSES = ['planned', 'active', 'completed', 'cancelled'];
+    private readonly logger = new Logger(OutagesService.name);
 
     constructor(
         @InjectRepository(Outage)
@@ -123,7 +125,15 @@ export class OutagesService {
             );
         }
 
-        await this.notificationQueueService.enqueueOutageNotification(savedOutage.id);
+        try {
+            await this.notificationQueueService.enqueueOutageNotification(savedOutage.id);
+        } catch (error) {
+            // The outage is saved either way; report the failure instead of
+            // returning 500 (which made callers retry into a 409 conflict).
+            this.logger.error(
+                `Failed to queue notifications for outage ${savedOutage.id}: ${(error as Error).message}`,
+            );
+        }
 
         return this.outagesRepository.findOne({
             where: { id: savedOutage.id },
