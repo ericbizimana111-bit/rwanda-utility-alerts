@@ -1,311 +1,175 @@
-import React, { useState, useEffect } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    ActivityIndicator,
-    Modal,
-} from 'react-native';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/types';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { RootScreenProps } from '../navigation/types';
 import { colors } from '../theme/colors';
 import { AppHeader } from '../components/AppHeader';
-import { CustomDropdown, DropdownOption } from '../components/CustomDropdown';
-import { Icon } from '../components/Icon';
-import { api, ApiError, Location, Utility } from '../api/client';
+import { SearchablePicker } from '../components/SearchablePicker';
+import { UtilityChoice, UtilitySelector } from '../components/UtilitySelector';
+import { LoadingState } from '../components/LoadingState';
+import { ErrorState } from '../components/ErrorState';
+import { Dialog } from '../components/Dialog';
+import { Button, Card, InfoNote } from '../components/ui';
+import { api, ApiError, errorMessage } from '../api/client';
+import { useLocationOptions } from '../hooks/useLocationOptions';
+import { utilityKind } from '../utils/outage';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'AddSubscription'>;
-
-export function AddSubscriptionScreen({ navigation }: Props) {
-    const [locations, setLocations] = useState<Location[]>([]);
-    const [utilities, setUtilities] = useState<Utility[]>([]);
-    const [loadingOptions, setLoadingOptions] = useState(true);
-    const [optionsError, setOptionsError] = useState<string | null>(null);
-    const [location, setLocation] = useState<string | null>(null);
-    const [utilityId, setUtilityId] = useState<string | null>(null);
+export function AddSubscriptionScreen({ navigation }: RootScreenProps<'AddSubscription'>) {
+    const { locations, utilities, districtOptions, sectorOptions, loading, error, reload } = useLocationOptions();
+    const [utility, setUtility] = useState<UtilityChoice>('both');
+    const [district, setDistrict] = useState<string | null>(null);
+    const [locationId, setLocationId] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
-    const [successModal, setSuccessModal] = useState(false);
-    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const [submitError, setSubmitError] = useState<string | null>(null);
+    const [done, setDone] = useState<string | null>(null);
 
-    async function fetchOptions() {
-        setLoadingOptions(true);
-        setOptionsError(null);
-        try {
-            const [locs, utils] = await Promise.all([
-                api.getLocations(),
-                api.getUtilities(),
-            ]);
-            setLocations(locs);
-            setUtilities(utils);
-        } catch (err) {
-            setOptionsError(
-                err instanceof ApiError ? err.message : 'Unable to load locations and utilities.'
-            );
-        } finally {
-            setLoadingOptions(false);
-        }
-    }
+    const areaOptions = useMemo(() => sectorOptions(district), [sectorOptions, district]);
+    const selectedLocation = locations.find((location) => location.id === locationId);
 
-    useEffect(() => {
-        void fetchOptions();
-    }, []);
-
-    // Real locations from the backend only. The submit button stays disabled
-    // until a real location record is selected.
-    const locationOptions: DropdownOption[] = locations.map((l) => ({
-        label: [l.district, l.sector, l.cell].filter(Boolean).join(' - '),
-        value: l.id,
-    }));
-
-    // Real utilities from the backend only.
-    const utilityOptions: DropdownOption[] = utilities
-        .filter((u) => u.isActive)
-        .map((u) => ({ label: `${u.name} (${u.code})`, value: u.id }));
-
-    async function handleSubscribe() {
-        if (!location || !utilityId) {
-            setErrorMsg('Please select both a location and a utility.');
+    async function submit() {
+        if (!locationId) return;
+        const targets = utilities.filter((item) => utility === 'both' || utilityKind(item) === utility);
+        if (!targets.length) {
+            setSubmitError('This utility is not available right now.');
             return;
         }
 
         setBusy(true);
-        setErrorMsg(null);
+        setSubmitError(null);
+        let created = 0;
+        let alreadyFollowing = 0;
         try {
-            await api.createSubscription(location, utilityId);
-            setSuccessModal(true);
-        } catch (err) {
-            setErrorMsg(
-                err instanceof ApiError
-                    ? err.message
-                    : 'Unable to add subscription. Please verify your connection.'
+            for (const target of targets) {
+                try {
+                    await api.createSubscription(locationId, target.id);
+                    created += 1;
+                } catch (err) {
+                    if (err instanceof ApiError && err.status === 409) alreadyFollowing += 1;
+                    else throw err;
+                }
+            }
+            const place = selectedLocation?.sector ?? `the whole of ${selectedLocation?.district ?? district}`;
+            setDone(
+                created
+                    ? `You'll get ${utility === 'both' ? 'electricity and water' : utility} alerts for ${place}.`
+                    : `You already follow ${place}${alreadyFollowing > 1 ? ' for both utilities' : ''}.`,
             );
+        } catch (err) {
+            setSubmitError(errorMessage(err, 'Unable to follow this area. Please try again.'));
         } finally {
             setBusy(false);
         }
     }
 
     return (
-        <SafeAreaView style={styles.safeArea}>
-            <AppHeader
-                title="Add Subscription"
-                showBack
-                onBack={() => navigation.goBack()}
-            />
+        <View style={styles.screen}>
+            <AppHeader title="Follow an area" subtitle="Get alerts for a district or sector" showBack onBack={() => navigation.goBack()} />
 
-            <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-                {loadingOptions ? (
-                    <View style={styles.optionsLoader}>
-                        <ActivityIndicator color={colors.primary} />
-                        <Text style={styles.optionsLoaderText}>Loading locations and utilities...</Text>
-                    </View>
-                ) : optionsError ? (
-                    <View style={styles.optionsErrorBox}>
-                        <Text style={styles.errorText}>{optionsError}</Text>
-                        <Pressable style={styles.retryBtn} onPress={() => void fetchOptions()}>
-                            <Text style={styles.retryBtnText}>Retry</Text>
-                        </Pressable>
-                    </View>
-                ) : (
-                    <>
-                        {/* Location Dropdown (real backend locations) */}
-                        <CustomDropdown
-                            label="Location"
-                            placeholder="Select location"
-                            value={location}
-                            options={locationOptions}
-                            onSelect={(opt) => setLocation(opt.value)}
-                        />
+            {loading ? (
+                <LoadingState rows={3} />
+            ) : error ? (
+                <ErrorState title="Couldn't load locations" description={error} onRetry={() => void reload()} />
+            ) : (
+                <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+                    <Card style={styles.card}>
+                        <Step number={1} title="What should we alert you about?" />
+                        <UtilitySelector value={utility} onChange={setUtility} allowBoth />
+                    </Card>
 
-                        {/* Utility Dropdown (real backend utilities) */}
-                        <CustomDropdown
-                            label="Utility"
-                            placeholder="Select utility"
-                            value={utilityId}
-                            options={utilityOptions}
-                            onSelect={(opt) => setUtilityId(opt.value)}
-                        />
-
-                        {locationOptions.length === 0 || utilityOptions.length === 0 ? (
-                            <Text style={styles.emptyOptionsText}>
-                                No locations or utilities are available right now. Please try again later.
-                            </Text>
-                        ) : null}
-
-                        {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
-
-                        {/* Subscribe Button */}
-                        <Pressable
-                            style={({ pressed }) => [
-                                styles.submitBtn,
-                                (!location || !utilityId || busy) && styles.submitBtnDisabled,
-                                pressed && styles.btnPressed,
-                            ]}
-                            onPress={handleSubscribe}
-                            disabled={!location || !utilityId || busy}
-                        >
-                            {busy ? (
-                                <ActivityIndicator color="#FFFFFF" />
-                            ) : (
-                                <Text style={styles.submitBtnText}>Subscribe</Text>
-                            )}
-                        </Pressable>
-                    </>
-                )}
-            </ScrollView>
-
-            {/* Success Modal (shown only after the API call succeeded) */}
-            <Modal visible={successModal} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.successCard}>
-                        <View style={styles.successIconCircle}>
-                            <Icon name="check" size={28} color="#FFFFFF" />
-                        </View>
-                        <Text style={styles.successTitle}>Subscribed!</Text>
-                        <Text style={styles.successDesc}>
-                            You will now receive outage notifications for this neighborhood.
-                        </Text>
-                        <Pressable
-                            style={styles.doneBtn}
-                            onPress={() => {
-                                setSuccessModal(false);
-                                navigation.goBack();
+                    <Card style={styles.card}>
+                        <Step number={2} title="Where?" />
+                        <SearchablePicker
+                            label="District"
+                            placeholder="Choose a district"
+                            searchPlaceholder="Search 30 districts"
+                            value={district}
+                            options={districtOptions}
+                            onSelect={(option) => {
+                                setDistrict(option.value);
+                                setLocationId(sectorOptions(option.value)[0]?.value ?? null);
                             }}
-                        >
-                            <Text style={styles.doneBtnText}>View Subscriptions</Text>
-                        </Pressable>
-                    </View>
-                </View>
-            </Modal>
-        </SafeAreaView>
+                        />
+                        <SearchablePicker
+                            label="Sector"
+                            placeholder={district ? 'Choose a sector' : 'Choose a district first'}
+                            searchPlaceholder="Search sectors"
+                            value={locationId}
+                            options={areaOptions}
+                            onSelect={(option) => setLocationId(option.value)}
+                            icon="layers"
+                            disabled={!district}
+                        />
+                        <InfoNote>
+                            Pick a sector for precise alerts, or keep “Whole of {district ?? 'the district'}” to hear about every interruption in the district.
+                        </InfoNote>
+                    </Card>
+
+                    {submitError ? <InfoNote tone="warning" icon="alert">{submitError}</InfoNote> : null}
+
+                    <Button title="Start alerts" icon="bell" onPress={() => void submit()} loading={busy} disabled={!locationId} />
+                </ScrollView>
+            )}
+
+            <Dialog
+                visible={!!done}
+                onClose={() => navigation.goBack()}
+                icon="check-circle"
+                tone="success"
+                title="You're all set"
+                message={done ?? undefined}
+                actions={<Button title="Done" onPress={() => navigation.goBack()} style={styles.flex} />}
+            />
+        </View>
+    );
+}
+
+function Step({ number, title }: { number: number; title: string }) {
+    return (
+        <View style={styles.step}>
+            <View style={styles.stepNumber}>
+                <Text style={styles.stepNumberText}>{number}</Text>
+            </View>
+            <Text style={styles.stepTitle}>{title}</Text>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    safeArea: {
-        flex: 1,
-        backgroundColor: colors.headerBg,
-    },
-    container: {
+    screen: {
         flex: 1,
         backgroundColor: colors.background,
     },
-    scrollContent: {
-        padding: 20,
+    content: {
+        padding: 16,
+        paddingBottom: 36,
         gap: 14,
     },
-    optionsLoader: {
+    card: {
+        gap: 14,
+    },
+    step: {
+        flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        paddingVertical: 32,
     },
-    optionsLoaderText: {
-        fontSize: 13,
-        color: colors.textSecondary,
-    },
-    optionsErrorBox: {
-        alignItems: 'center',
-        gap: 12,
-        paddingVertical: 24,
-    },
-    retryBtn: {
+    stepNumber: {
+        width: 26,
+        height: 26,
+        borderRadius: 13,
         backgroundColor: colors.primary,
-        paddingVertical: 10,
-        paddingHorizontal: 32,
-        borderRadius: 8,
-    },
-    retryBtnText: {
-        color: '#FFFFFF',
-        fontWeight: '600',
-        fontSize: 14,
-    },
-    emptyOptionsText: {
-        fontSize: 13,
-        color: colors.textSecondary,
-        textAlign: 'center',
-        lineHeight: 18,
-    },
-    submitBtn: {
-        backgroundColor: colors.primary,
-        borderRadius: 8,
-        height: 48,
         alignItems: 'center',
         justifyContent: 'center',
-        marginTop: 12,
-        shadowColor: colors.primary,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-        elevation: 3,
     },
-    submitBtnDisabled: {
-        opacity: 0.5,
-    },
-    submitBtnText: {
+    stepNumberText: {
         color: '#FFFFFF',
-        fontWeight: '700',
+        fontWeight: '800',
+        fontSize: 13,
+    },
+    stepTitle: {
         fontSize: 16,
-    },
-    btnPressed: {
-        opacity: 0.9,
-    },
-    errorText: {
-        color: colors.alertRed,
-        fontSize: 13,
-        textAlign: 'center',
-    },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'center',
-        padding: 24,
-    },
-    successCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        padding: 24,
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 6,
-    },
-    successIconCircle: {
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: colors.activeGreen,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 14,
-    },
-    successTitle: {
-        fontSize: 18,
         fontWeight: '800',
         color: colors.textPrimary,
-        marginBottom: 8,
     },
-    successDesc: {
-        fontSize: 14,
-        color: colors.textSecondary,
-        textAlign: 'center',
-        lineHeight: 20,
-        marginBottom: 20,
-    },
-    doneBtn: {
-        backgroundColor: colors.primary,
-        paddingVertical: 12,
-        paddingHorizontal: 28,
-        borderRadius: 8,
-        width: '100%',
-        alignItems: 'center',
-    },
-    doneBtnText: {
-        color: '#FFFFFF',
-        fontWeight: '700',
-        fontSize: 15,
+    flex: {
+        flex: 1,
     },
 });

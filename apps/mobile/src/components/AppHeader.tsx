@@ -1,25 +1,31 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable, StatusBar, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors } from '../theme/colors';
+import { colors, gradients } from '../theme/colors';
 import { Icon } from './Icon';
 import { LogoEmblem } from './LogoEmblem';
+import { GradientBackground } from './GradientBackground';
+import { FlagStripe } from './FlagStripe';
 
 interface AppHeaderProps {
     title?: string;
+    subtitle?: string;
     showBack?: boolean;
     onBack?: () => void;
-    showBrand?: boolean; // If true, shows logo + "Rwanda Utility Alerts"
-    showActions?: boolean; // Bell + Avatar
+    showBrand?: boolean; // Logo + "Rwanda Utility Alerts"
+    showActions?: boolean; // Bell + avatar
     avatarLetter?: string;
     onBellPress?: () => void;
     onProfilePress?: () => void;
     rightIcon?: React.ReactNode;
     unreadBadge?: number;
+    /** Extra content rendered inside the gradient, below the title row. */
+    children?: React.ReactNode;
 }
 
 export function AppHeader({
     title,
+    subtitle,
     showBack = false,
     onBack,
     showBrand = false,
@@ -29,74 +35,115 @@ export function AppHeader({
     onProfilePress,
     rightIcon,
     unreadBadge = 0,
+    children,
 }: AppHeaderProps) {
     const insets = useSafeAreaInsets();
-    const topInset = Math.max(insets.top, Platform.OS === 'android' ? 12 : 16);
+    const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight ?? 12) : 16);
 
     return (
-        <View style={[styles.headerContainer, { paddingTop: topInset + 6 }]}>
-            <StatusBar barStyle="light-content" backgroundColor={colors.headerBg} />
-            <View style={styles.headerContent}>
-                {/* Left section */}
-                <View style={styles.leftSection}>
-                    {showBack ? (
-                        <Pressable onPress={onBack} hitSlop={12} style={styles.backButton}>
-                            <Icon name="back" size={22} color="#FFFFFF" />
-                        </Pressable>
-                    ) : null}
-
-                    {showBrand ? (
-                        <View style={styles.brandRow}>
-                            <LogoEmblem size={28} />
-                            <Text style={styles.brandTitle}>Rwanda Utility Alerts</Text>
-                        </View>
-                    ) : (
-                        <Text style={[styles.headerTitle, showBack && styles.titleWithBack]}>
-                            {title}
-                        </Text>
-                    )}
-                </View>
-
-                {/* Right section */}
-                <View style={styles.rightSection}>
-                    {rightIcon}
-                    {showActions && (
-                        <View style={styles.actionsRow}>
-                            <Pressable onPress={onBellPress} style={styles.actionBtn} hitSlop={10}>
-                                <Icon name="bell" size={20} color="#FFFFFF" />
-                                {unreadBadge > 0 ? <View style={styles.bellBadge} /> : null}
+        <View>
+            <StatusBar barStyle="light-content" backgroundColor={colors.primaryDeep} />
+            <GradientBackground colors={gradients.header} decorated style={[styles.container, { paddingTop: topInset + 8 }]}>
+                <View style={styles.row}>
+                    <View style={styles.left}>
+                        {showBack ? (
+                            <Pressable
+                                onPress={onBack}
+                                hitSlop={12}
+                                style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+                                accessibilityRole="button"
+                                accessibilityLabel="Go back"
+                            >
+                                <Icon name="back" size={20} color="#FFFFFF" />
                             </Pressable>
-                            <Pressable onPress={onProfilePress} style={styles.avatarCircle} hitSlop={6}>
-                                <Text style={styles.avatarText}>{avatarLetter || 'U'}</Text>
-                            </Pressable>
-                        </View>
-                    )}
+                        ) : null}
+
+                        {showBrand ? (
+                            <View style={styles.brandRow}>
+                                <LogoEmblem size={30} />
+                                <View>
+                                    <Text style={styles.brandTitle}>Rwanda Utility Alerts</Text>
+                                    <Text style={styles.brandSubtitle}>Electricity · Water</Text>
+                                </View>
+                            </View>
+                        ) : (
+                            <View style={styles.titleBlock}>
+                                <Text style={styles.title} numberOfLines={1}>{title}</Text>
+                                {subtitle ? <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text> : null}
+                            </View>
+                        )}
+                    </View>
+
+                    <View style={styles.right}>
+                        {rightIcon}
+                        {showActions ? (
+                            <>
+                                <Pressable
+                                    onPress={onBellPress}
+                                    style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+                                    hitSlop={8}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={unreadBadge > 0 ? `Alerts, ${unreadBadge} unread` : 'Alerts'}
+                                >
+                                    <Icon name="bell" size={19} color="#FFFFFF" />
+                                    {unreadBadge > 0 ? (
+                                        <View style={styles.badge}>
+                                            <Text style={styles.badgeText}>{unreadBadge > 9 ? '9+' : unreadBadge}</Text>
+                                        </View>
+                                    ) : null}
+                                </Pressable>
+                                <Pressable
+                                    onPress={onProfilePress}
+                                    style={({ pressed }) => [styles.avatar, pressed && styles.pressed]}
+                                    hitSlop={6}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Profile"
+                                >
+                                    <Text style={styles.avatarText}>{avatarLetter || 'U'}</Text>
+                                </Pressable>
+                            </>
+                        ) : null}
+                    </View>
                 </View>
-            </View>
+                {children ? <View style={styles.children}>{children}</View> : null}
+            </GradientBackground>
+            <FlagStripe />
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    headerContainer: {
-        backgroundColor: colors.headerBg,
-        paddingBottom: 12,
-        paddingHorizontal: 16,
+    container: {
+        paddingHorizontal: 18,
+        paddingBottom: 16,
     },
-    headerContent: {
+    row: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        minHeight: 36,
+        minHeight: 40,
     },
-    leftSection: {
+    left: {
         flexDirection: 'row',
         alignItems: 'center',
         flex: 1,
+        gap: 12,
     },
-    backButton: {
-        marginRight: 12,
-        padding: 4,
+    right: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    iconButton: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: 'rgba(255,255,255,0.14)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    pressed: {
+        opacity: 0.75,
     },
     brandRow: {
         flexDirection: 'row',
@@ -104,55 +151,64 @@ const styles = StyleSheet.create({
         gap: 10,
     },
     brandTitle: {
-        fontSize: 18,
-        fontWeight: '700',
+        fontSize: 17,
+        fontWeight: '800',
         color: '#FFFFFF',
-        letterSpacing: 0.2,
+        letterSpacing: 0.1,
     },
-    headerTitle: {
-        fontSize: 18,
-        fontWeight: '700',
+    brandSubtitle: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: colors.textOnDarkMuted,
+        letterSpacing: 0.4,
+    },
+    titleBlock: {
+        flex: 1,
+    },
+    title: {
+        fontSize: 20,
+        fontWeight: '800',
         color: '#FFFFFF',
+        letterSpacing: -0.2,
     },
-    titleWithBack: {
-        fontSize: 18,
-        fontWeight: '700',
+    subtitle: {
+        fontSize: 13,
+        color: colors.textOnDarkMuted,
+        marginTop: 2,
     },
-    rightSection: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    actionsRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 14,
-    },
-    actionBtn: {
-        padding: 4,
-        position: 'relative',
-    },
-    bellBadge: {
+    badge: {
         position: 'absolute',
-        top: 2,
-        right: 2,
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: colors.alertRed,
-        borderWidth: 1.5,
-        borderColor: colors.headerBg,
+        top: -2,
+        right: -2,
+        minWidth: 18,
+        height: 18,
+        borderRadius: 9,
+        paddingHorizontal: 4,
+        backgroundColor: colors.flagYellow,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 2,
+        borderColor: colors.primaryDark,
     },
-    avatarCircle: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+    badgeText: {
+        fontSize: 9,
+        fontWeight: '800',
+        color: colors.primaryDeep,
+    },
+    avatar: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
         backgroundColor: '#FFFFFF',
         alignItems: 'center',
         justifyContent: 'center',
     },
     avatarText: {
         color: colors.primary,
-        fontWeight: '700',
-        fontSize: 14,
+        fontWeight: '800',
+        fontSize: 15,
+    },
+    children: {
+        marginTop: 16,
     },
 });

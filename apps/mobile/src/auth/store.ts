@@ -10,6 +10,7 @@ type AuthState = {
     signUp: (phone: string, password: string, firstName: string, lastName: string, email?: string) => Promise<void>;
     restore: () => Promise<void>;
     signOut: () => Promise<void>;
+    setUser: (user: ApiUser) => void;
 };
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -43,6 +44,9 @@ export const useAuthStore = create<AuthState>((set) => ({
         await api.unregisterDevice();
         await api.logout();
         set({ user: null, pushStatus: 'idle' });
+    },
+    setUser(user) {
+        set({ user });
     },
 }));
 

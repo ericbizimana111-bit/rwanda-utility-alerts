@@ -1,161 +1,136 @@
-import React, { useEffect, useState } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    FlatList,
-    Pressable,
-    SafeAreaView,
-} from 'react-native';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, StyleSheet, FlatList, RefreshControl, ScrollView } from 'react-native';
+import { TabScreenProps } from '../navigation/types';
 import { colors } from '../theme/colors';
 import { AppHeader } from '../components/AppHeader';
-import { BottomNavigation } from '../components/BottomNavigation';
 import { OutageCard } from '../components/OutageCard';
 import { LoadingState } from '../components/LoadingState';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
-import { api, Outage } from '../api/client';
+import { Chip, SegmentedControl } from '../components/ui';
+import { api } from '../api/client';
+import { useLoader } from '../hooks/useLoader';
+import { outageAffectsSubscription, utilityKind, UtilityKind } from '../utils/outage';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Outages'>;
-type TabType = 'upcoming' | 'active';
+type Phase = 'active' | 'upcoming';
 
-export function OutagesScreen({ navigation }: Props) {
-    const [activeTab, setActiveTab] = useState<TabType>('upcoming');
-    const [upcomingItems, setUpcomingItems] = useState<Outage[]>([]);
-    const [activeItems, setActiveItems] = useState<Outage[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+async function loadOutages() {
+    const [upcoming, active, subscriptions] = await Promise.all([
+        api.getUpcomingOutages(),
+        api.getActiveOutages(),
+        api.getSubscriptions().catch(() => []),
+    ]);
+    return { upcoming, active, subscriptions };
+}
 
-    async function loadOutages() {
-        setLoading(true);
-        setError(null);
-        try {
-            const [upcoming, active] = await Promise.all([
-                api.getUpcomingOutages(),
-                api.getActiveOutages(),
-            ]);
-            setUpcomingItems(upcoming);
-            setActiveItems(active);
-        } catch {
-            setError('Unable to load outages.');
-        } finally {
-            setLoading(false);
-        }
-    }
+export function OutagesScreen({ navigation, route }: TabScreenProps<'Outages'>) {
+    const [phase, setPhase] = useState<Phase>(route.params?.phase ?? 'upcoming');
+    const [utility, setUtility] = useState<UtilityKind | 'all'>('all');
+    const [mineOnly, setMineOnly] = useState(false);
+    const { data, error, loading, refreshing, refresh, retry } = useLoader(loadOutages, 'Unable to load outages.');
 
+    // Home screen shortcuts open a specific tab.
     useEffect(() => {
-        void loadOutages();
-    }, []);
+        if (route.params?.phase) setPhase(route.params.phase);
+    }, [route.params?.phase]);
 
-    const displayedItems = activeTab === 'upcoming' ? upcomingItems : activeItems;
+    const items = useMemo(() => {
+        if (!data) return [];
+        const source = phase === 'active' ? data.active : data.upcoming;
+        return source.filter((outage) => {
+            if (utility !== 'all' && utilityKind(outage.utility) !== utility) return false;
+            if (mineOnly && !data.subscriptions.some((subscription) => outageAffectsSubscription(outage, subscription))) return false;
+            return true;
+        });
+    }, [data, phase, utility, mineOnly]);
+
+    const affects = (outageId: string) => {
+        const outage = items.find((item) => item.id === outageId);
+        return Boolean(outage && data?.subscriptions.some((subscription) => outageAffectsSubscription(outage, subscription)));
+    };
 
     return (
-        <SafeAreaView style={styles.safeArea}>
-            <AppHeader title="Outages" />
+        <View style={styles.screen}>
+            <AppHeader title="Outages" subtitle="Electricity and water interruptions in Rwanda">
+                <SegmentedControl
+                    value={phase}
+                    onChange={setPhase}
+                    options={[
+                        { value: 'upcoming', label: 'Scheduled', count: data?.upcoming.length },
+                        { value: 'active', label: 'In progress', count: data?.active.length },
+                    ]}
+                    style={styles.segmented}
+                />
+            </AppHeader>
 
-            <View style={styles.container}>
-                {/* Segmented Tabs */}
-                <View style={styles.tabBar}>
-                    <Pressable
-                        style={[styles.tabButton, activeTab === 'upcoming' && styles.tabButtonActive]}
-                        onPress={() => setActiveTab('upcoming')}
-                    >
-                        <Text
-                            style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}
-                        >
-                            Upcoming ({upcomingItems.length})
-                        </Text>
-                    </Pressable>
-
-                    <Pressable
-                        style={[styles.tabButton, activeTab === 'active' && styles.tabButtonActive]}
-                        onPress={() => setActiveTab('active')}
-                    >
-                        <Text style={[styles.tabText, activeTab === 'active' && styles.tabTextActive]}>
-                            Active ({activeItems.length})
-                        </Text>
-                    </Pressable>
-                </View>
-
-                {/* Content */}
-                {loading ? (
-                    <LoadingState message="Loading outages..." />
-                ) : error ? (
-                    <ErrorState onRetry={loadOutages} />
-                ) : displayedItems.length === 0 ? (
-                    <EmptyState
-                        title="No active outages"
-                        description="There are currently no active utility outages in your area."
-                        buttonTitle=""
-                    />
-                ) : (
-                    <FlatList
-                        data={displayedItems}
-                        keyExtractor={(item) => item.id}
-                        contentContainerStyle={styles.listContent}
-                        renderItem={({ item }) => (
-                            <OutageCard
-                                outage={item}
-                                onPress={() => navigation.navigate('OutageDetails', { outageId: item.id })}
-                            />
-                        )}
-                        showsVerticalScrollIndicator={false}
-                    />
-                )}
+            <View style={styles.filters}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+                    <Chip label="All" selected={utility === 'all'} onPress={() => setUtility('all')} />
+                    <Chip label="Electricity" icon="lightning" iconColor={colors.electricityIcon} selected={utility === 'electricity'} onPress={() => setUtility('electricity')} />
+                    <Chip label="Water" icon="water" iconColor={colors.waterIcon} selected={utility === 'water'} onPress={() => setUtility('water')} />
+                    <Chip label="My areas only" icon="map-pin" iconColor={colors.primary} selected={mineOnly} onPress={() => setMineOnly((value) => !value)} />
+                </ScrollView>
             </View>
 
-            <BottomNavigation
-                activeTab="Outages"
-                onTabPress={(tab) => {
-                    if (tab === 'Home') navigation.navigate('Home');
-                    else if (tab === 'Subscriptions') navigation.navigate('Subscriptions');
-                    else if (tab === 'Reports') navigation.navigate('Reports');
-                    else if (tab === 'More') navigation.navigate('Profile');
-                }}
-            />
-        </SafeAreaView>
+            {loading ? (
+                <LoadingState />
+            ) : error ? (
+                <ErrorState title="Couldn't load outages" description={error} onRetry={() => void retry()} />
+            ) : (
+                <FlatList
+                    data={items}
+                    keyExtractor={(item) => item.id}
+                    contentContainerStyle={items.length ? styles.list : styles.emptyList}
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.primary} colors={[colors.primary]} />}
+                    renderItem={({ item }) => (
+                        <OutageCard
+                            outage={item}
+                            affectsYou={affects(item.id)}
+                            onPress={() => navigation.navigate('OutageDetails', { outageId: item.id })}
+                        />
+                    )}
+                    ListEmptyComponent={
+                        <EmptyState
+                            icon="check-circle"
+                            iconColor={colors.success}
+                            iconBg={colors.successBg}
+                            title={phase === 'active' ? 'No interruptions in progress' : 'Nothing scheduled'}
+                            description={
+                                mineOnly
+                                    ? 'No interruptions match the areas you follow.'
+                                    : phase === 'active'
+                                        ? 'No announced electricity or water interruption is under way right now.'
+                                        : 'REG and WASAC have not announced any upcoming interruptions that match these filters.'
+                            }
+                        />
+                    }
+                    showsVerticalScrollIndicator={false}
+                />
+            )}
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    safeArea: {
-        flex: 1,
-        backgroundColor: colors.headerBg,
-    },
-    container: {
+    screen: {
         flex: 1,
         backgroundColor: colors.background,
     },
-    tabBar: {
-        flexDirection: 'row',
-        backgroundColor: '#FFFFFF',
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
+    segmented: {
+        backgroundColor: 'rgba(255,255,255,0.16)',
     },
-    tabButton: {
-        flex: 1,
-        paddingVertical: 14,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderBottomWidth: 2.5,
-        borderBottomColor: 'transparent',
+    filters: {
+        paddingTop: 12,
     },
-    tabButtonActive: {
-        borderBottomColor: colors.primary,
+    filterRow: {
+        paddingHorizontal: 16,
+        gap: 8,
     },
-    tabText: {
-        fontSize: 14,
-        fontWeight: '500',
-        color: colors.textSecondary,
-    },
-    tabTextActive: {
-        color: colors.primary,
-        fontWeight: '700',
-    },
-    listContent: {
+    list: {
         padding: 16,
-        paddingBottom: 24,
+        paddingBottom: 32,
+    },
+    emptyList: {
+        flexGrow: 1,
     },
 });

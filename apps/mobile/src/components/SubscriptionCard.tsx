@@ -2,121 +2,101 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { colors } from '../theme/colors';
 import { Icon } from './Icon';
+import { Card, StatusPill, UtilityIcon } from './ui';
 import { Subscription } from '../api/client';
+import { UTILITY_THEME, utilityKind } from '../utils/outage';
 
 interface SubscriptionCardProps {
     subscription: Subscription;
-    onManage?: () => void;
+    onRemove?: () => void;
+    /** Number of current or upcoming outages reaching this area. */
+    outageCount?: number;
 }
 
-export function SubscriptionCard({ subscription, onManage }: SubscriptionCardProps) {
-    const isWater = subscription.utility?.name?.toLowerCase().includes('water');
-    const iconColor = isWater ? colors.water : colors.electricityIcon;
-    const iconBg = isWater ? colors.waterBg : colors.electricityBg;
-    const iconName = isWater ? 'water' : 'lightning';
+export function SubscriptionCard({ subscription, onRemove, outageCount = 0 }: SubscriptionCardProps) {
+    const kind = utilityKind(subscription.utility);
+    const location = subscription.location;
+    const place = location?.sector ?? location?.district ?? 'Unknown area';
+    const detail = location?.sector
+        ? `${location.district} District · ${location.province}`
+        : `Whole district · ${location?.province ?? ''}`;
 
     return (
-        <View style={styles.card}>
-            <View style={styles.leftCol}>
-                <View style={[styles.iconCircle, { backgroundColor: iconBg }]}>
-                    <Icon name={iconName} size={20} color={iconColor} />
+        <Card style={styles.card}>
+            <View style={styles.row}>
+                <UtilityIcon kind={kind} size={46} />
+                <View style={styles.body}>
+                    <Text style={styles.place}>{place}</Text>
+                    <Text style={styles.detail} numberOfLines={1}>{detail}</Text>
+                    <View style={styles.pills}>
+                        <StatusPill
+                            label={`${UTILITY_THEME[kind].label} alerts`}
+                            color={UTILITY_THEME[kind].color}
+                            bg={UTILITY_THEME[kind].bg}
+                            dot={false}
+                        />
+                        {outageCount > 0 ? (
+                            <StatusPill label={`${outageCount} outage${outageCount === 1 ? '' : 's'}`} color={colors.danger} bg={colors.dangerBg} />
+                        ) : (
+                            <StatusPill label="All clear" color={colors.success} bg={colors.successBg} />
+                        )}
+                    </View>
                 </View>
-                <View style={styles.infoCol}>
-                    <Text style={styles.title}>
-                        {subscription.location?.district || 'District'}
-                    </Text>
-                    <Text style={styles.utility}>
-                        {subscription.utility?.name || 'Utility'}
-                    </Text>
-                </View>
+                {onRemove ? (
+                    <Pressable
+                        onPress={onRemove}
+                        hitSlop={10}
+                        style={({ pressed }) => [styles.remove, pressed && styles.removePressed]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Stop following ${place}`}
+                    >
+                        <Icon name="trash" size={17} color={colors.textSecondary} />
+                    </Pressable>
+                ) : null}
             </View>
-
-            <View style={styles.rightCol}>
-                <View style={styles.activeBadge}>
-                    <Text style={styles.activeText}>Active</Text>
-                </View>
-                <Pressable
-                    style={({ pressed }) => [styles.manageButton, pressed && styles.managePressed]}
-                    onPress={onManage}
-                >
-                    <Text style={styles.manageText}>Manage</Text>
-                </Pressable>
-            </View>
-        </View>
+        </Card>
     );
 }
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: colors.surface,
-        borderRadius: 12,
-        padding: 14,
         marginBottom: 12,
+    },
+    row: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 14,
+    },
+    body: {
+        flex: 1,
+        gap: 3,
+    },
+    place: {
+        fontSize: 16,
+        fontWeight: '800',
+        color: colors.textPrimary,
+    },
+    detail: {
+        fontSize: 12,
+        color: colors.textSecondary,
+    },
+    pills: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        marginTop: 6,
+    },
+    remove: {
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: colors.surfaceSubtle,
         borderWidth: 1,
         borderColor: colors.border,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.03,
-        shadowRadius: 2,
-        elevation: 1,
-    },
-    leftCol: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        flex: 1,
-    },
-    iconCircle: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    infoCol: {
-        gap: 3,
-    },
-    title: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: colors.textPrimary,
-    },
-    utility: {
-        fontSize: 13,
-        color: colors.textSecondary,
-    },
-    rightCol: {
-        alignItems: 'flex-end',
-        gap: 8,
-    },
-    activeBadge: {
-        backgroundColor: colors.activeGreenBg,
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 10,
-    },
-    activeText: {
-        fontSize: 11,
-        fontWeight: '600',
-        color: colors.activeGreen,
-    },
-    manageButton: {
-        backgroundColor: '#FFFFFF',
-        borderWidth: 1,
-        borderColor: colors.borderDark,
-        borderRadius: 6,
-        paddingHorizontal: 12,
-        paddingVertical: 4,
-    },
-    managePressed: {
-        backgroundColor: '#F1F5F9',
-    },
-    manageText: {
-        fontSize: 12,
-        fontWeight: '500',
-        color: colors.textPrimary,
+    removePressed: {
+        backgroundColor: colors.dangerBg,
     },
 });

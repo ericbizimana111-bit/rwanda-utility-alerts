@@ -31,7 +31,32 @@ export type IconName =
     | 'more'
     | 'search'
     | 'copy'
-    | 'close';
+    | 'close'
+    | StrokeIconName;
+
+// Simple outline icons (24x24 grid, Feather-style strokes).
+const STROKE_ICONS = {
+    'map-pin': ['M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z', 'M12 13a3 3 0 100-6 3 3 0 000 6z'],
+    calendar: ['M19 4H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2z', 'M16 2v4M8 2v4M3 10h18'],
+    external: ['M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6', 'M15 3h6v6M10 14L21 3'],
+    edit: ['M12 20h9', 'M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z'],
+    key: ['M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.78 7.78 5.5 5.5 0 017.78-7.78zM15.5 7.5l3 3L22 7l-3-3'],
+    mail: ['M4 4h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2z', 'M22 6l-10 7L2 6'],
+    trash: ['M3 6h18', 'M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6', 'M10 11v6M14 11v6', 'M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2'],
+    shield: ['M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z', 'M9 12l2 2 4-4'],
+    refresh: ['M23 4v6h-6', 'M1 20v-6h6', 'M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15'],
+    'check-circle': ['M22 11.08V12a10 10 0 11-5.93-9.14', 'M22 4L12 14.01l-3-3'],
+    'x-circle': ['M12 22a10 10 0 100-20 10 10 0 000 20z', 'M15 9l-6 6M9 9l6 6'],
+    globe: ['M12 22a10 10 0 100-20 10 10 0 000 20z', 'M2 12h20', 'M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z'],
+    layers: ['M12 2L2 7l10 5 10-5-10-5z', 'M2 17l10 5 10-5', 'M2 12l10 5 10-5'],
+    'power-off': ['M18.36 6.64a9 9 0 11-12.73 0', 'M12 2v10'],
+    'message': ['M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z'],
+    'arrow-right': ['M5 12h14', 'M12 5l7 7-7 7'],
+    'bell-off': ['M13.73 21a2 2 0 01-3.46 0', 'M18.63 13A17.89 17.89 0 0118 8', 'M6.26 6.26A5.86 5.86 0 006 8c0 7-3 9-3 9h14', 'M18 8a6 6 0 00-9.33-5', 'M1 1l22 22'],
+    activity: ['M22 12h-4l-3 9L9 3l-3 9H2'],
+} as const;
+
+type StrokeIconName = keyof typeof STROKE_ICONS;
 
 interface IconProps {
     name: IconName;
@@ -329,7 +354,16 @@ export function Icon({ name, size = 20, color = '#0B63C5' }: IconProps) {
                 </Svg>
             );
 
-        default:
-            return null;
+        default: {
+            const paths = STROKE_ICONS[name as StrokeIconName];
+            if (!paths) return null;
+            return (
+                <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+                    {paths.map((d) => (
+                        <Path key={d} d={d} stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    ))}
+                </Svg>
+            );
+        }
     }
 }

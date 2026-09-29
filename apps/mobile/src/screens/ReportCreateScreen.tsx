@@ -1,709 +1,375 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    TextInput,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    ActivityIndicator,
-    Modal,
-} from 'react-native';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/types';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, FlatList, RefreshControl, KeyboardAvoidingView, Platform } from 'react-native';
+import { TabScreenProps } from '../navigation/types';
 import { colors } from '../theme/colors';
 import { AppHeader } from '../components/AppHeader';
-import { BottomNavigation } from '../components/BottomNavigation';
-import { CustomDropdown, DropdownOption } from '../components/CustomDropdown';
+import { SearchablePicker } from '../components/SearchablePicker';
+import { UtilityChoice, UtilitySelector } from '../components/UtilitySelector';
 import { EmptyState } from '../components/EmptyState';
+import { ErrorState } from '../components/ErrorState';
+import { LoadingState } from '../components/LoadingState';
+import { Dialog } from '../components/Dialog';
 import { Icon } from '../components/Icon';
-import { api, ApiError, Report, Location, Utility } from '../api/client';
+import { Button, Card, InfoNote, SegmentedControl, StatusPill, TextField, UtilityIcon } from '../components/ui';
+import { api, errorMessage, Report } from '../api/client';
+import { useLocationOptions } from '../hooks/useLocationOptions';
 import { formatDateTime } from '../utils/format';
+import { locationLabel, utilityKind } from '../utils/outage';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Reports'>;
-type TabType = 'submit' | 'myReports';
+type Tab = 'submit' | 'mine';
+const MIN_LENGTH = 10;
+const MAX_LENGTH = 1000;
 
-function statusBadge(status: string | undefined): { label: string; bg: string; color: string } {
-    const value = (status || 'pending').toLowerCase();
-    if (value.includes('resolved')) return { label: 'Resolved', bg: colors.alertGreenBg, color: colors.activeGreen };
-    if (value.includes('verified')) return { label: 'Verified', bg: colors.alertBlueBg, color: colors.primary };
-    if (value.includes('reject')) return { label: 'Declined', bg: colors.alertRedBg, color: colors.alertRed };
-    if (value.includes('progress')) return { label: 'In Progress', bg: colors.alertYellowBg, color: colors.alertYellow };
-    return { label: 'In Review', bg: colors.alertYellowBg, color: colors.alertYellow };
+const REPORT_STATUS: Record<string, { label: string; color: string; bg: string; help: string }> = {
+    pending: { label: 'Under review', color: colors.warning, bg: colors.warningBg, help: 'Waiting to be reviewed. You can still edit it.' },
+    verified: { label: 'Confirmed', color: colors.primary, bg: colors.primaryLight, help: 'Our team confirmed this report.' },
+    rejected: { label: 'Not confirmed', color: colors.textSecondary, bg: colors.surfaceSubtle, help: 'This report could not be confirmed.' },
+    resolved: { label: 'Resolved', color: colors.success, bg: colors.successBg, help: 'The problem has been resolved.' },
+};
+
+export function ReportCreateScreen({ route }: TabScreenProps<'Reports'>) {
+    const [tab, setTab] = useState<Tab>(route.params?.tab ?? 'submit');
+
+    useEffect(() => {
+        if (route.params?.tab) setTab(route.params.tab);
+    }, [route.params?.tab]);
+
+    return (
+        <View style={styles.screen}>
+            <AppHeader title="Report a problem" subtitle="Tell us about an unannounced interruption">
+                <SegmentedControl
+                    value={tab}
+                    onChange={setTab}
+                    options={[
+                        { value: 'submit', label: 'New report' },
+                        { value: 'mine', label: 'My reports' },
+                    ]}
+                    style={styles.segmented}
+                />
+            </AppHeader>
+            {tab === 'submit' ? <SubmitReport onSubmitted={() => setTab('mine')} /> : <MyReports onCreate={() => setTab('submit')} />}
+        </View>
+    );
 }
 
-export function ReportCreateScreen({ navigation }: Props) {
-    const [activeTab, setActiveTab] = useState<TabType>('submit');
-    const [utility, setUtility] = useState<string | null>(null);
-    const [location, setLocation] = useState<string | null>(null);
+function SubmitReport({ onSubmitted }: { onSubmitted: () => void }) {
+    const { utilities, districtOptions, sectorOptions, loading, error, reload } = useLocationOptions();
+    const [utility, setUtility] = useState<UtilityChoice | null>(null);
+    const [district, setDistrict] = useState<string | null>(null);
+    const [locationId, setLocationId] = useState<string | null>(null);
     const [description, setDescription] = useState('');
     const [busy, setBusy] = useState(false);
-    const [errorMsg, setErrorMsg] = useState<string | null>(null);
-    const [successModal, setSuccessModal] = useState(false);
-    const [reports, setReports] = useState<Report[]>([]);
-    const [loadingReports, setLoadingReports] = useState(false);
-    const [reportsError, setReportsError] = useState<string | null>(null);
-    const [locations, setLocations] = useState<Location[]>([]);
-    const [utilities, setUtilities] = useState<Utility[]>([]);
-    const [loadingOptions, setLoadingOptions] = useState(true);
-    const [optionsError, setOptionsError] = useState<string | null>(null);
-    const [editingReport, setEditingReport] = useState<Report | null>(null);
-    const [editDescription, setEditDescription] = useState('');
-    const [savingEdit, setSavingEdit] = useState(false);
-    const [editError, setEditError] = useState<string | null>(null);
+    const [formError, setFormError] = useState<string | null>(null);
+    const [success, setSuccess] = useState(false);
 
-    async function fetchOptions() {
-        setLoadingOptions(true);
-        setOptionsError(null);
-        try {
-            const [locs, utils] = await Promise.all([api.getLocations(), api.getUtilities()]);
-            setLocations(locs);
-            setUtilities(utils);
-        } catch (err) {
-            setOptionsError(
-                err instanceof ApiError ? err.message : 'Unable to load locations and utilities.'
-            );
-        } finally {
-            setLoadingOptions(false);
-        }
-    }
+    const areaOptions = useMemo(() => sectorOptions(district), [sectorOptions, district]);
+    const length = description.trim().length;
 
-    useEffect(() => {
-        void fetchOptions();
-    }, []);
-
-    const loadReports = useCallback(async () => {
-        setLoadingReports(true);
-        setReportsError(null);
-        try {
-            const data = await api.getReports();
-            setReports(data);
-        } catch (err) {
-            setReportsError(
-                err instanceof ApiError ? err.message : 'Unable to load your reports.'
-            );
-        } finally {
-            setLoadingReports(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        if (activeTab === 'myReports') {
-            void loadReports();
-        }
-    }, [activeTab, loadReports]);
-
-    // Real utilities from the backend only.
-    const utilityOptions: DropdownOption[] = utilities
-        .filter((u) => u.isActive)
-        .map((u) => ({ label: `${u.name} (${u.code})`, value: u.id }));
-
-    // Real locations from the backend only.
-    const locationOptions: DropdownOption[] = locations.map((l) => ({
-        label: [l.district, l.sector, l.cell].filter(Boolean).join(' - '),
-        value: l.id,
-    }));
-
-    async function handleSubmit() {
-        if (!description.trim() || description.trim().length < 10) {
-            setErrorMsg('Please describe the issue with at least 10 characters.');
-            return;
-        }
-        if (!location || !utility) {
-            setErrorMsg('Please select both a location and a utility.');
-            return;
-        }
+    async function submit() {
+        setFormError(null);
+        const target = utilities.find((item) => utilityKind(item) === utility);
+        if (!target) return setFormError('Choose electricity or water.');
+        if (!locationId) return setFormError('Choose the district and sector where the problem is.');
+        if (length < MIN_LENGTH) return setFormError(`Describe the problem in at least ${MIN_LENGTH} characters.`);
 
         setBusy(true);
-        setErrorMsg(null);
         try {
-            await api.createReport(location, utility, description.trim());
+            await api.createReport(locationId, target.id, description.trim());
             setDescription('');
-            setSuccessModal(true);
+            setSuccess(true);
         } catch (err) {
-            setErrorMsg(
-                err instanceof ApiError
-                    ? err.message
-                    : 'Unable to submit report. Please check your network connection.'
-            );
+            setFormError(errorMessage(err, 'Unable to send your report. Please try again.'));
         } finally {
             setBusy(false);
         }
     }
 
-    function startEdit(report: Report) {
-        setEditingReport(report);
-        setEditDescription(report.description);
-        setEditError(null);
-    }
-
-    async function saveEdit() {
-        if (!editingReport) return;
-        if (editDescription.trim().length < 10) {
-            setEditError('Description must be at least 10 characters.');
-            return;
-        }
-        setSavingEdit(true);
-        setEditError(null);
-        try {
-            const updated = await api.updateReport(editingReport.id, editDescription.trim());
-            setReports((prev) => prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r)));
-            setEditingReport(null);
-        } catch (err) {
-            setEditError(
-                err instanceof ApiError ? err.message : 'Unable to update this report.'
-            );
-        } finally {
-            setSavingEdit(false);
-        }
-    }
+    if (loading) return <LoadingState rows={3} />;
+    if (error) return <ErrorState title="Couldn't load the form" description={error} onRetry={() => void reload()} />;
 
     return (
-        <SafeAreaView style={styles.safeArea}>
-            <AppHeader
-                title="Community Reports"
-                showBack
-                onBack={() => navigation.navigate('Home')}
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
+            <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+                <InfoNote icon="alert" tone="warning">
+                    For danger to life, such as a fallen power line, call 112 immediately. Faults can also be reported to REG on 2727 or WASAC on 3535 (toll-free).
+                </InfoNote>
+
+                <Card style={styles.card}>
+                    <Text style={styles.cardTitle}>What is affected?</Text>
+                    <UtilitySelector value={utility} onChange={setUtility} />
+                </Card>
+
+                <Card style={styles.card}>
+                    <Text style={styles.cardTitle}>Where?</Text>
+                    <SearchablePicker
+                        label="District"
+                        placeholder="Choose a district"
+                        searchPlaceholder="Search 30 districts"
+                        value={district}
+                        options={districtOptions}
+                        onSelect={(option) => {
+                            setDistrict(option.value);
+                            setLocationId(null);
+                        }}
+                    />
+                    <SearchablePicker
+                        label="Sector"
+                        placeholder={district ? 'Choose a sector' : 'Choose a district first'}
+                        searchPlaceholder="Search sectors"
+                        value={locationId}
+                        options={areaOptions}
+                        onSelect={(option) => setLocationId(option.value)}
+                        icon="layers"
+                        disabled={!district}
+                    />
+                </Card>
+
+                <Card style={styles.card}>
+                    <TextField
+                        label="What's happening?"
+                        placeholder="e.g. No electricity on KN 5 Rd since 7:00 this morning. Neighbours are also affected."
+                        multiline
+                        maxLength={MAX_LENGTH}
+                        value={description}
+                        onChangeText={(value) => {
+                            setDescription(value);
+                            if (formError) setFormError(null);
+                        }}
+                        hint={`${length}/${MAX_LENGTH} · Include when it started, the street or landmark, and whether neighbours are affected.`}
+                    />
+                </Card>
+
+                {formError ? <InfoNote tone="warning" icon="alert">{formError}</InfoNote> : null}
+
+                <Button title="Send report" icon="arrow-right" onPress={() => void submit()} loading={busy} />
+            </ScrollView>
+
+            <Dialog
+                visible={success}
+                onClose={() => setSuccess(false)}
+                icon="check-circle"
+                tone="success"
+                title="Report sent"
+                message="Thank you. Your report has been received and will be reviewed. You can follow its status under My reports."
+                actions={
+                    <Button
+                        title="View my reports"
+                        onPress={() => {
+                            setSuccess(false);
+                            onSubmitted();
+                        }}
+                        style={styles.flex}
+                    />
+                }
             />
+        </KeyboardAvoidingView>
+    );
+}
 
-            <View style={styles.container}>
-                {/* Tabs: Submit Report / My Reports */}
-                <View style={styles.tabBar}>
-                    <Pressable
-                        style={[styles.tabButton, activeTab === 'submit' && styles.tabButtonActive]}
-                        onPress={() => setActiveTab('submit')}
-                    >
-                        <Text style={[styles.tabText, activeTab === 'submit' && styles.tabTextActive]}>
-                            Submit Report
-                        </Text>
-                    </Pressable>
+function MyReports({ onCreate }: { onCreate: () => void }) {
+    const [reports, setReports] = useState<Report[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [editing, setEditing] = useState<Report | null>(null);
+    const [draft, setDraft] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [editError, setEditError] = useState<string | null>(null);
 
-                    <Pressable
-                        style={[styles.tabButton, activeTab === 'myReports' && styles.tabButtonActive]}
-                        onPress={() => setActiveTab('myReports')}
-                    >
-                        <Text style={[styles.tabText, activeTab === 'myReports' && styles.tabTextActive]}>
-                            My Reports ({reports.length})
-                        </Text>
-                    </Pressable>
-                </View>
+    const load = useCallback(async (mode: 'initial' | 'refresh') => {
+        if (mode === 'initial') setLoading(true);
+        else setRefreshing(true);
+        try {
+            setReports(await api.getReports());
+            setError(null);
+        } catch (err) {
+            setError(errorMessage(err, 'Unable to load your reports.'));
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, []);
 
-                {activeTab === 'submit' ? (
-                    <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
-                        {loadingOptions ? (
-                            <View style={styles.optionsLoader}>
-                                <ActivityIndicator color={colors.primary} />
-                                <Text style={styles.optionsLoaderText}>Loading locations and utilities...</Text>
-                            </View>
-                        ) : optionsError ? (
-                            <View style={styles.optionsErrorBox}>
-                                <Text style={styles.errorText}>{optionsError}</Text>
-                                <Pressable style={styles.retryBtn} onPress={() => void fetchOptions()}>
-                                    <Text style={styles.retryBtnText}>Retry</Text>
-                                </Pressable>
-                            </View>
-                        ) : (
-                            <>
-                                {/* Utility Dropdown */}
-                                <CustomDropdown
-                                    label="Utility"
-                                    placeholder="Select utility"
-                                    value={utility}
-                                    options={utilityOptions}
-                                    onSelect={(opt) => setUtility(opt.value)}
-                                />
+    useEffect(() => {
+        void load('initial');
+    }, [load]);
 
-                                {/* Location Dropdown */}
-                                <CustomDropdown
-                                    label="Location"
-                                    placeholder="Select location"
-                                    value={location}
-                                    options={locationOptions}
-                                    onSelect={(opt) => setLocation(opt.value)}
-                                />
+    async function save() {
+        if (!editing) return;
+        if (draft.trim().length < MIN_LENGTH) {
+            setEditError(`Use at least ${MIN_LENGTH} characters.`);
+            return;
+        }
+        setSaving(true);
+        setEditError(null);
+        try {
+            const updated = await api.updateReport(editing.id, draft.trim());
+            setReports((current) => current.map((report) => (report.id === updated.id ? { ...report, ...updated } : report)));
+            setEditing(null);
+        } catch (err) {
+            setEditError(errorMessage(err, 'Unable to update this report.'));
+        } finally {
+            setSaving(false);
+        }
+    }
 
-                                {/* Description Textarea */}
-                                <View style={styles.inputGroup}>
-                                    <Text style={styles.label}>Description</Text>
-                                    <TextInput
-                                        style={styles.textArea}
-                                        placeholder="Describe the issue..."
-                                        placeholderTextColor={colors.textMuted}
-                                        multiline
-                                        numberOfLines={5}
-                                        textAlignVertical="top"
-                                        value={description}
-                                        onChangeText={(t) => {
-                                            setDescription(t);
-                                            if (errorMsg) setErrorMsg(null);
-                                        }}
-                                    />
+    if (loading) return <LoadingState rows={3} />;
+    if (error) return <ErrorState title="Couldn't load your reports" description={error} onRetry={() => void load('initial')} />;
+
+    return (
+        <>
+            <FlatList
+                data={reports}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={reports.length ? styles.list : styles.emptyList}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load('refresh')} tintColor={colors.primary} colors={[colors.primary]} />}
+                renderItem={({ item }) => {
+                    const status = REPORT_STATUS[item.status] ?? REPORT_STATUS.pending;
+                    const kind = utilityKind(item.utility);
+                    return (
+                        <Card style={styles.reportCard}>
+                            <View style={styles.reportHeader}>
+                                <UtilityIcon kind={kind} size={40} />
+                                <View style={styles.flex}>
+                                    <Text style={styles.reportTitle}>{kind === 'water' ? 'Water' : 'Electricity'} problem</Text>
+                                    <Text style={styles.reportPlace} numberOfLines={1}>{locationLabel(item.location)}</Text>
                                 </View>
-
-                                {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
-
-                                {/* Submit Button */}
-                                <Pressable
-                                    style={({ pressed }) => [styles.submitBtn, pressed && styles.btnPressed]}
-                                    onPress={handleSubmit}
-                                    disabled={busy}
-                                >
-                                    {busy ? (
-                                        <ActivityIndicator color="#FFFFFF" />
-                                    ) : (
-                                        <Text style={styles.submitBtnText}>Submit Report</Text>
-                                    )}
-                                </Pressable>
-                            </>
-                        )}
-                    </ScrollView>
-                ) : (
-                    /* My Reports Tab */
-                    <View style={styles.myReportsContent}>
-                        {loadingReports ? (
-                            <View style={styles.loaderContainer}>
-                                <ActivityIndicator size="large" color={colors.primary} />
+                                <StatusPill label={status.label} color={status.color} bg={status.bg} />
                             </View>
-                        ) : reportsError ? (
-                            <View style={styles.reportsErrorBox}>
-                                <Text style={styles.errorText}>{reportsError}</Text>
-                                <Pressable style={styles.retryBtn} onPress={() => void loadReports()}>
-                                    <Text style={styles.retryBtnText}>Retry</Text>
-                                </Pressable>
+                            <Text style={styles.reportBody}>{item.description}</Text>
+                            <View style={styles.reportFooter}>
+                                <View style={styles.reportMeta}>
+                                    <Icon name="clock" size={12} color={colors.textMuted} />
+                                    <Text style={styles.reportTime}>{formatDateTime(item.createdAt) ?? ''}</Text>
+                                </View>
+                                {item.status === 'pending' ? (
+                                    <Button
+                                        title="Edit"
+                                        icon="edit"
+                                        variant="secondary"
+                                        size="md"
+                                        onPress={() => {
+                                            setEditing(item);
+                                            setDraft(item.description);
+                                            setEditError(null);
+                                        }}
+                                        style={styles.editButton}
+                                    />
+                                ) : null}
                             </View>
-                        ) : reports.length === 0 ? (
-                            <EmptyState
-                                title="No reports yet"
-                                description="Your submitted reports will appear here."
-                                buttonTitle="Create a Report"
-                                onButtonPress={() => setActiveTab('submit')}
-                            />
-                        ) : (
-                            <ScrollView contentContainerStyle={styles.reportsList}>
-                                {reports.map((rep) => {
-                                    const badge = statusBadge(rep.status);
-
-                                    return (
-                                        <View key={rep.id} style={styles.reportCard}>
-                                            <View style={styles.reportHeader}>
-                                                <Text style={styles.reportTitle}>
-                                                    {rep.utility?.name || 'Utility'} Outage
-                                                </Text>
-                                                <View style={[styles.reportBadge, { backgroundColor: badge.bg }]}>
-                                                    <Text style={[styles.reportBadgeText, { color: badge.color }]}>
-                                                        {badge.label}
-                                                    </Text>
-                                                </View>
-                                            </View>
-                                            <Text style={styles.reportDesc}>{rep.description}</Text>
-                                            <View style={styles.reportFooter}>
-                                                <Text style={styles.reportLoc}>
-                                                    {rep.location?.district || 'Location'}
-                                                    {rep.location?.sector ? ' · ' + rep.location.sector : ''}
-                                                </Text>
-                                                <Text style={styles.reportTime}>
-                                                    {formatDateTime(rep.createdAt) ?? ''}
-                                                </Text>
-                                            </View>
-                                            {rep.status?.toLowerCase() === 'pending' ? (
-                                                <Pressable
-                                                    style={styles.editBtn}
-                                                    onPress={() => startEdit(rep)}
-                                                >
-                                                    <Icon name="document" size={14} color={colors.primary} />
-                                                    <Text style={styles.editBtnText}>Edit</Text>
-                                                </Pressable>
-                                            ) : null}
-                                        </View>
-                                    );
-                                })}
-                            </ScrollView>
-                        )}
-                    </View>
-                )}
-            </View>
-
-            {/* Success Submission Modal (only after the API call succeeded) */}
-            <Modal visible={successModal} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.successCard}>
-                        <View style={styles.successIconCircle}>
-                            <Icon name="check" size={28} color="#FFFFFF" />
-                        </View>
-                        <Text style={styles.successTitle}>Report Submitted!</Text>
-                        <Text style={styles.successDesc}>
-                            Your outage report has been received and routed to regional utility responders.
-                        </Text>
-                        <Pressable
-                            style={styles.doneBtn}
-                            onPress={() => {
-                                setSuccessModal(false);
-                                setActiveTab('myReports');
-                            }}
-                        >
-                            <Text style={styles.doneBtnText}>View My Reports</Text>
-                        </Pressable>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* Edit Report Modal (PATCH /reports/:id, pending reports only) */}
-            <Modal visible={!!editingReport} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.editCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Edit Report</Text>
-                            <Pressable onPress={() => setEditingReport(null)} hitSlop={10} disabled={savingEdit}>
-                                <Icon name="close" size={20} color={colors.textSecondary} />
-                            </Pressable>
-                        </View>
-                        <TextInput
-                            style={styles.editTextArea}
-                            placeholder="Describe the issue..."
-                            placeholderTextColor={colors.textMuted}
-                            multiline
-                            numberOfLines={4}
-                            textAlignVertical="top"
-                            value={editDescription}
-                            onChangeText={setEditDescription}
-                            editable={!savingEdit}
-                        />
-                        {editError ? <Text style={styles.errorText}>{editError}</Text> : null}
-                        <View style={styles.editActionsRow}>
-                            <Pressable style={styles.cancelBtn} onPress={() => setEditingReport(null)} disabled={savingEdit}>
-                                <Text style={styles.cancelBtnText}>Cancel</Text>
-                            </Pressable>
-                            <Pressable style={styles.saveBtn} onPress={() => void saveEdit()} disabled={savingEdit}>
-                                {savingEdit ? (
-                                    <ActivityIndicator color="#FFFFFF" size="small" />
-                                ) : (
-                                    <Text style={styles.saveBtnText}>Save Changes</Text>
-                                )}
-                            </Pressable>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
-
-            <BottomNavigation
-                activeTab="Reports"
-                onTabPress={(tab) => {
-                    if (tab === 'Home') navigation.navigate('Home');
-                    else if (tab === 'Outages') navigation.navigate('Outages');
-                    else if (tab === 'Subscriptions') navigation.navigate('Subscriptions');
-                    else if (tab === 'More') navigation.navigate('Profile');
+                            <Text style={styles.statusHelp}>{status.help}</Text>
+                        </Card>
+                    );
                 }}
+                ListEmptyComponent={
+                    <EmptyState
+                        icon="message"
+                        title="No reports yet"
+                        description="If your power or water goes off without an announcement, let us know."
+                        buttonTitle="Report a problem"
+                        onButtonPress={onCreate}
+                    />
+                }
+                showsVerticalScrollIndicator={false}
             />
-        </SafeAreaView>
+
+            <Dialog
+                visible={!!editing}
+                onClose={() => setEditing(null)}
+                icon="edit"
+                title="Edit report"
+                message="Reports can be edited while they are under review."
+                dismissable={!saving}
+                actions={
+                    <>
+                        <Button title="Cancel" variant="ghost" size="md" onPress={() => setEditing(null)} disabled={saving} style={styles.flex} />
+                        <Button title="Save" size="md" onPress={() => void save()} loading={saving} style={styles.flex} />
+                    </>
+                }
+            >
+                <TextField label="Description" multiline maxLength={MAX_LENGTH} value={draft} onChangeText={setDraft} error={editError} editable={!saving} />
+            </Dialog>
+        </>
     );
 }
 
 const styles = StyleSheet.create({
-    safeArea: {
-        flex: 1,
-        backgroundColor: colors.headerBg,
-    },
-    container: {
+    screen: {
         flex: 1,
         backgroundColor: colors.background,
     },
-    tabBar: {
-        flexDirection: 'row',
-        backgroundColor: '#FFFFFF',
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-    },
-    tabButton: {
-        flex: 1,
-        paddingVertical: 14,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderBottomWidth: 2.5,
-        borderBottomColor: 'transparent',
-    },
-    tabButtonActive: {
-        borderBottomColor: colors.primary,
-    },
-    tabText: {
-        fontSize: 14,
-        fontWeight: '500',
-        color: colors.textSecondary,
-    },
-    tabTextActive: {
-        color: colors.primary,
-        fontWeight: '700',
-    },
-    scrollContainer: {
+    flex: {
         flex: 1,
     },
-    scrollContent: {
-        padding: 20,
+    segmented: {
+        backgroundColor: 'rgba(255,255,255,0.16)',
+    },
+    content: {
+        padding: 16,
+        paddingBottom: 36,
         gap: 14,
     },
-    optionsLoader: {
-        alignItems: 'center',
-        gap: 10,
-        paddingVertical: 24,
+    card: {
+        gap: 14,
     },
-    optionsLoaderText: {
-        fontSize: 13,
-        color: colors.textSecondary,
-    },
-    optionsErrorBox: {
-        alignItems: 'center',
-        gap: 12,
-        paddingVertical: 20,
-    },
-    reportsErrorBox: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 12,
-        padding: 24,
-    },
-    retryBtn: {
-        backgroundColor: colors.primary,
-        paddingVertical: 10,
-        paddingHorizontal: 32,
-        borderRadius: 8,
-    },
-    retryBtnText: {
-        color: '#FFFFFF',
-        fontWeight: '600',
-        fontSize: 14,
-    },
-    inputGroup: {
-        gap: 6,
-    },
-    label: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: colors.textPrimary,
-    },
-    textArea: {
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.borderDark,
-        borderRadius: 8,
-        padding: 14,
-        height: 110,
-        fontSize: 14,
-        color: colors.textPrimary,
-    },
-    errorText: {
-        color: colors.alertRed,
-        fontSize: 13,
-        textAlign: 'center',
-    },
-    submitBtn: {
-        backgroundColor: colors.primary,
-        borderRadius: 8,
-        height: 48,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginTop: 8,
-        shadowColor: colors.primary,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    submitBtnText: {
-        color: '#FFFFFF',
-        fontWeight: '700',
+    cardTitle: {
         fontSize: 16,
+        fontWeight: '800',
+        color: colors.textPrimary,
     },
-    btnPressed: {
-        opacity: 0.9,
-    },
-    myReportsContent: {
-        flex: 1,
-    },
-    loaderContainer: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    reportsList: {
+    list: {
         padding: 16,
+        paddingBottom: 32,
         gap: 12,
+    },
+    emptyList: {
+        flexGrow: 1,
     },
     reportCard: {
-        backgroundColor: colors.surface,
-        borderRadius: 12,
-        padding: 16,
-        borderWidth: 1,
-        borderColor: colors.border,
-        gap: 8,
+        gap: 10,
     },
     reportHeader: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
+        gap: 12,
     },
     reportTitle: {
         fontSize: 15,
-        fontWeight: '700',
+        fontWeight: '800',
         color: colors.textPrimary,
     },
-    reportDesc: {
-        fontSize: 13,
+    reportPlace: {
+        fontSize: 12,
         color: colors.textSecondary,
-        lineHeight: 18,
+        marginTop: 1,
+    },
+    reportBody: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        lineHeight: 20,
     },
     reportFooter: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
-        marginTop: 4,
-        paddingTop: 8,
+        justifyContent: 'space-between',
+        paddingTop: 10,
         borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: colors.border,
     },
-    reportLoc: {
-        fontSize: 12,
-        color: colors.textSecondary,
-        flex: 1,
+    reportMeta: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
     },
     reportTime: {
-        fontSize: 11,
-        color: colors.textMuted,
-        textAlign: 'right',
-    },
-    reportBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 6,
-    },
-    reportBadgeText: {
-        fontSize: 11,
-        fontWeight: '700',
-    },
-    editBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        alignSelf: 'flex-start',
-        gap: 6,
-        borderWidth: 1,
-        borderColor: colors.borderDark,
-        borderRadius: 6,
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        marginTop: 4,
-    },
-    editBtnText: {
         fontSize: 12,
-        fontWeight: '600',
-        color: colors.primary,
+        color: colors.textMuted,
     },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'center',
-        padding: 24,
+    editButton: {
+        height: 34,
     },
-    successCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        padding: 24,
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 6,
-    },
-    successIconCircle: {
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: colors.activeGreen,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 14,
-    },
-    successTitle: {
-        fontSize: 18,
-        fontWeight: '800',
-        color: colors.textPrimary,
-        marginBottom: 8,
-    },
-    successDesc: {
-        fontSize: 14,
-        color: colors.textSecondary,
-        textAlign: 'center',
-        lineHeight: 20,
-        marginBottom: 20,
-    },
-    doneBtn: {
-        backgroundColor: colors.primary,
-        paddingVertical: 12,
-        paddingHorizontal: 28,
-        borderRadius: 8,
-        width: '100%',
-        alignItems: 'center',
-    },
-    doneBtnText: {
-        color: '#FFFFFF',
-        fontWeight: '700',
-        fontSize: 15,
-    },
-    editCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 14,
-        padding: 20,
-        gap: 12,
-    },
-    modalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    modalTitle: {
-        fontSize: 17,
-        fontWeight: '700',
-        color: colors.textPrimary,
-    },
-    editTextArea: {
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.borderDark,
-        borderRadius: 8,
-        padding: 12,
-        height: 100,
-        fontSize: 14,
-        color: colors.textPrimary,
-    },
-    editActionsRow: {
-        flexDirection: 'row',
-        gap: 12,
-    },
-    cancelBtn: {
-        flex: 1,
-        paddingVertical: 11,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: colors.borderDark,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    cancelBtnText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: colors.textPrimary,
-    },
-    saveBtn: {
-        flex: 1,
-        backgroundColor: colors.primary,
-        paddingVertical: 11,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    saveBtnText: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: '#FFFFFF',
+    statusHelp: {
+        fontSize: 12,
+        color: colors.textMuted,
     },
 });

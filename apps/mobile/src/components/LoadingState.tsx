@@ -1,73 +1,81 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
-import Svg, { Circle } from 'react-native-svg';
-import { colors } from '../theme/colors';
+import { Animated, Easing, StyleSheet, View, ViewStyle, StyleProp } from 'react-native';
+import { colors, radius } from '../theme/colors';
 
-interface LoadingStateProps {
-    message?: string;
-}
-
-export function LoadingState({ message = 'Loading outages...' }: LoadingStateProps) {
-    const spinAnim = useRef(new Animated.Value(0)).current;
+/** Pulsing placeholder block used while content loads. */
+function SkeletonBlock({ style }: { style?: StyleProp<ViewStyle> }) {
+    const pulse = useRef(new Animated.Value(0.45)).current;
 
     useEffect(() => {
         const loop = Animated.loop(
-            Animated.timing(spinAnim, {
-                toValue: 1,
-                duration: 1100,
-                easing: Easing.linear,
-                useNativeDriver: true,
-            })
+            Animated.sequence([
+                Animated.timing(pulse, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+                Animated.timing(pulse, { toValue: 0.45, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+            ]),
         );
         loop.start();
         return () => loop.stop();
-    }, [spinAnim]);
+    }, [pulse]);
 
-    const spin = spinAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: ['0deg', '360deg'],
-    });
+    return <Animated.View style={[styles.block, style, { opacity: pulse }]} />;
+}
 
+/** Skeleton list of cards shown while a screen loads. */
+export function LoadingState({ rows = 4, message }: { rows?: number; message?: string }) {
     return (
-        <View style={styles.container}>
-            <Animated.View style={{ transform: [{ rotate: spin }] }}>
-                <Svg width={44} height={44} viewBox="0 0 44 44">
-                    <Circle
-                        cx="22"
-                        cy="22"
-                        r="18"
-                        stroke="#E2E8F0"
-                        strokeWidth="3.5"
-                        fill="none"
-                    />
-                    <Circle
-                        cx="22"
-                        cy="22"
-                        r="18"
-                        stroke={colors.primary}
-                        strokeWidth="3.5"
-                        strokeDasharray="40 80"
-                        strokeLinecap="round"
-                        fill="none"
-                    />
-                </Svg>
-            </Animated.View>
-            <Text style={styles.message}>{message}</Text>
+        <View style={styles.container} accessibilityLabel={message ?? 'Loading'} accessibilityRole="progressbar">
+            {Array.from({ length: rows }).map((_, index) => (
+                <View key={index} style={styles.card}>
+                    <SkeletonBlock style={styles.icon} />
+                    <View style={styles.lines}>
+                        <SkeletonBlock style={styles.lineWide} />
+                        <SkeletonBlock style={styles.lineMid} />
+                        <SkeletonBlock style={styles.lineShort} />
+                    </View>
+                </View>
+            ))}
         </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-        gap: 16,
+        padding: 16,
+        gap: 12,
     },
-    message: {
-        fontSize: 14,
-        fontWeight: '500',
-        color: colors.textSecondary,
+    card: {
+        flexDirection: 'row',
+        gap: 14,
+        padding: 16,
+        borderRadius: radius.lg,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    block: {
+        backgroundColor: '#E4EAF1',
+        borderRadius: 6,
+    },
+    icon: {
+        width: 44,
+        height: 44,
+        borderRadius: 14,
+    },
+    lines: {
+        flex: 1,
+        gap: 8,
+        paddingTop: 2,
+    },
+    lineWide: {
+        height: 13,
+        width: '85%',
+    },
+    lineMid: {
+        height: 11,
+        width: '60%',
+    },
+    lineShort: {
+        height: 11,
+        width: '40%',
     },
 });

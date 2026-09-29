@@ -94,13 +94,18 @@ class LocationResolver:
         if not district_names:
             return []
 
-        matched: list[dict] = []
-        unresolved: list[str] = []
         area_values = self.split_areas(areas)
+        # A lone area equal to the district name means the whole district.
+        if len(area_values) == 1 and self.match_key(area_values[0]) in {
+            self.match_key(self.canonical_district(name)) for name in district_names
+        }:
+            area_values = []
+
+        per_district: list[tuple[list[dict], list[dict]]] = []
+        resolved_areas: set[str] = set()
 
         for district_name in district_names:
-            district_name = self.canonical_district(district_name)
-            locations = await self._get_district_locations(district_name)
+            locations = await self._get_district_locations(self.canonical_district(district_name))
             if not locations:
                 logger.warning("No locations found for district %s", district_name)
                 continue
@@ -108,8 +113,6 @@ class LocationResolver:
             district_matches: list[dict] = []
             for area in area_values:
                 key = self.match_key(area)
-                if key in {self.match_key(district_name), ""} and len(area_values) == 1:
-                    continue
                 candidates = [
                     location
                     for location in locations
@@ -119,18 +122,26 @@ class LocationResolver:
                     )
                 ]
                 if not candidates:
-                    unresolved.append(area)
                     continue
+                resolved_areas.add(area)
                 # Prefer the broadest record (sector-level before cell/village).
                 candidates.sort(key=lambda location: (bool(location.get("cell")), bool(location.get("village"))))
                 if candidates[0] not in district_matches:
                     district_matches.append(candidates[0])
 
-            if not district_matches:
-                district_level = next((location for location in locations if not location.get("sector")), None)
-                if district_level:
-                    district_matches.append(district_level)
+            per_district.append((locations, district_matches))
 
+        unresolved = [area for area in area_values if area not in resolved_areas]
+        matched: list[dict] = []
+
+        for locations, district_matches in per_district:
+            # Areas that are not official sectors (neighbourhoods, landmarks)
+            # cannot be pinned down, so alert the whole district rather than
+            # silently missing the residents who live there.
+            if not area_values or unresolved or (not district_matches and len(per_district) == 1):
+                district_level = next((location for location in locations if not location.get("sector")), None)
+                if district_level and (not district_matches or unresolved):
+                    district_matches = [*district_matches, district_level]
             matched.extend(location for location in district_matches if location not in matched)
 
         if unresolved:

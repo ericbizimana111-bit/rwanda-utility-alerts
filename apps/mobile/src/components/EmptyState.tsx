@@ -1,38 +1,40 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { colors } from '../theme/colors';
-import { Icon } from './Icon';
+import { Icon, IconName } from './Icon';
+import { Button } from './ui';
 
 interface EmptyStateProps {
-    title?: string;
+    title: string;
     description?: string;
+    icon?: IconName;
+    iconColor?: string;
+    iconBg?: string;
     buttonTitle?: string;
     onButtonPress?: () => void;
+    compact?: boolean;
 }
 
 export function EmptyState({
-    title = 'No reports yet',
-    description = 'Your submitted reports will appear here.',
-    buttonTitle = 'Create a Report',
+    title,
+    description,
+    icon = 'check-circle',
+    iconColor = colors.primary,
+    iconBg = colors.primaryLight,
+    buttonTitle,
     onButtonPress,
+    compact = false,
 }: EmptyStateProps) {
     return (
-        <View style={styles.container}>
-            <View style={styles.iconCircle}>
-                <Icon name="document" size={42} color="#94A3B8" />
+        <View style={[styles.container, compact && styles.compact]}>
+            <View style={[styles.iconCircle, compact && styles.iconCompact, { backgroundColor: iconBg }]}>
+                <Icon name={icon} size={compact ? 24 : 34} color={iconColor} />
             </View>
-
             <Text style={styles.title}>{title}</Text>
-            <Text style={styles.description}>{description}</Text>
-
-            {buttonTitle && onButtonPress && (
-                <Pressable
-                    style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-                    onPress={onButtonPress}
-                >
-                    <Text style={styles.buttonText}>{buttonTitle}</Text>
-                </Pressable>
-            )}
+            {description ? <Text style={styles.description}>{description}</Text> : null}
+            {buttonTitle && onButtonPress ? (
+                <Button title={buttonTitle} onPress={onButtonPress} size="md" style={styles.button} />
+            ) : null}
         </View>
     );
 }
@@ -42,22 +44,32 @@ const styles = StyleSheet.create({
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 32,
+        paddingHorizontal: 32,
+        paddingVertical: 40,
+    },
+    compact: {
+        flex: 0,
+        paddingVertical: 24,
+        paddingHorizontal: 20,
     },
     iconCircle: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: '#F1F5F9',
+        width: 76,
+        height: 76,
+        borderRadius: 26,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 20,
+        marginBottom: 18,
+    },
+    iconCompact: {
+        width: 52,
+        height: 52,
+        borderRadius: 18,
+        marginBottom: 12,
     },
     title: {
-        fontSize: 18,
-        fontWeight: '700',
+        fontSize: 17,
+        fontWeight: '800',
         color: colors.textPrimary,
-        marginBottom: 8,
         textAlign: 'center',
     },
     description: {
@@ -65,22 +77,11 @@ const styles = StyleSheet.create({
         color: colors.textSecondary,
         textAlign: 'center',
         lineHeight: 20,
-        marginBottom: 24,
+        marginTop: 6,
     },
     button: {
-        backgroundColor: colors.primary,
-        paddingVertical: 12,
-        paddingHorizontal: 28,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    buttonPressed: {
-        opacity: 0.9,
-    },
-    buttonText: {
-        color: '#FFFFFF',
-        fontWeight: '600',
-        fontSize: 14,
+        marginTop: 20,
+        alignSelf: 'center',
+        minWidth: 180,
     },
 });

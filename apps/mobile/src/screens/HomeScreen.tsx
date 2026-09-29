@@ -1,618 +1,495 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    Pressable,
-    SafeAreaView,
-    RefreshControl,
-} from 'react-native';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/types';
-import { colors } from '../theme/colors';
+import React, { useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Pressable } from 'react-native';
+import { TabScreenProps } from '../navigation/types';
+import { colors, radius, shadows } from '../theme/colors';
 import { AppHeader } from '../components/AppHeader';
-import { BottomNavigation } from '../components/BottomNavigation';
 import { OutageCard } from '../components/OutageCard';
 import { Icon, IconName } from '../components/Icon';
 import { ErrorState } from '../components/ErrorState';
-import { api, Outage, Subscription, NotificationItem } from '../api/client';
+import { LoadingState } from '../components/LoadingState';
+import { Card, SectionHeader } from '../components/ui';
+import { api, Outage } from '../api/client';
 import { useAuthStore } from '../auth/store';
-import { formatRelativeTime } from '../utils/format';
+import { useLoader } from '../hooks/useLoader';
+import { formatDay, formatRelativeTime, kinyarwandaGreeting } from '../utils/format';
+import { affectedAreasByDistrict, outageCountdown, outagePhase, outagesForSubscriptions } from '../utils/outage';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
-
-interface QuickAction {
-    id: string;
-    title: string;
-    subtitle: string;
-    icon: IconName;
-    iconColor: string;
-    iconBg: string;
-    action: () => void;
+async function loadHome() {
+    const [upcoming, active, subscriptions, notifications] = await Promise.all([
+        api.getUpcomingOutages(),
+        api.getActiveOutages(),
+        api.getSubscriptions(),
+        api.getNotificationList(),
+    ]);
+    return { upcoming, active, subscriptions, notifications };
 }
 
-export function HomeScreen({ navigation }: Props) {
+export function HomeScreen({ navigation }: TabScreenProps<'Home'>) {
     const user = useAuthStore((state) => state.user);
-    const [upcomingOutages, setUpcomingOutages] = useState<Outage[]>([]);
-    const [activeOutages, setActiveOutages] = useState<Outage[]>([]);
-    const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-    const [recentAlerts, setRecentAlerts] = useState<NotificationItem[]>([]);
-    const [unreadCount, setUnreadCount] = useState(0);
-    const [refreshing, setRefreshing] = useState(false);
-    const [loadError, setLoadError] = useState(false);
+    const { data, error, loading, refreshing, refresh, retry } = useLoader(loadHome, 'Unable to load the latest outages.');
 
-    const loadCustomerData = useCallback(async () => {
-        setLoadError(false);
-        const [upcoming, active, subs, notifs] = await Promise.allSettled([
-            api.getUpcomingOutages(),
-            api.getActiveOutages(),
-            api.getSubscriptions(),
-            api.getNotificationList(),
-        ]);
+    const firstName = user?.firstName || 'there';
+    const now = new Date();
 
-        // Notifications failing usually means an auth problem; surface a real
-        // error state instead of silently showing an empty dashboard.
-        if (notifs.status === 'rejected') {
-            setLoadError(true);
-        }
-        if (upcoming.status === 'fulfilled') setUpcomingOutages(upcoming.value);
-        if (active.status === 'fulfilled') setActiveOutages(active.value);
-        if (subs.status === 'fulfilled') setSubscriptions(subs.value);
-        if (notifs.status === 'fulfilled') {
-            setRecentAlerts(notifs.value.slice(0, 2));
-            setUnreadCount(notifs.value.filter((n) => !n.isRead).length);
-        }
-    }, []);
+    const summary = useMemo(() => {
+        if (!data) return null;
+        const current = [...data.active, ...data.upcoming].filter((outage) => outagePhase(outage) !== 'ended');
+        const mine = outagesForSubscriptions(current, data.subscriptions);
+        const mineIds = new Set(mine.map((outage) => outage.id));
+        const myActive = mine.filter((outage) => outagePhase(outage) === 'active');
+        const myUpcoming = mine.filter((outage) => outagePhase(outage) === 'upcoming');
+        return {
+            mine,
+            mineIds,
+            myActive,
+            myUpcoming,
+            elsewhere: data.upcoming.filter((outage) => !mineIds.has(outage.id)).slice(0, 3),
+            unread: data.notifications.filter((item) => !item.isRead).length,
+            recentAlerts: data.notifications.slice(0, 2),
+        };
+    }, [data]);
 
-    useEffect(() => {
-        const unsubscribe = navigation.addListener('focus', () => {
-            void loadCustomerData();
-        });
-        void loadCustomerData();
-        return unsubscribe;
-    }, [navigation, loadCustomerData]);
+    const header = (
+        <AppHeader
+            showBrand
+            showActions
+            avatarLetter={firstName.charAt(0).toUpperCase()}
+            unreadBadge={summary?.unread ?? 0}
+            onBellPress={() => navigation.navigate('Notifications')}
+            onProfilePress={() => navigation.navigate('Profile')}
+        >
+            <Text style={styles.greeting}>{kinyarwandaGreeting(now)}, {firstName}</Text>
+            <Text style={styles.date}>{formatDay(now)} · Kigali time</Text>
+        </AppHeader>
+    );
 
-    async function onRefresh() {
-        setRefreshing(true);
-        await loadCustomerData();
-        setRefreshing(false);
+    if (loading) {
+        return (
+            <View style={styles.screen}>
+                {header}
+                <LoadingState rows={3} />
+            </View>
+        );
     }
 
-    const quickActions: QuickAction[] = [
-        {
-            id: 'outages',
-            title: 'Outages',
-            subtitle: 'Upcoming & active',
-            icon: 'lightning',
-            iconColor: colors.electricityIcon,
-            iconBg: colors.electricityBg,
-            action: () => navigation.navigate('Outages'),
-        },
-        {
-            id: 'subs',
-            title: 'Subscriptions',
-            subtitle: 'My alert locations',
-            icon: 'subscriptions',
-            iconColor: colors.primary,
-            iconBg: colors.alertBlueBg,
-            action: () => navigation.navigate('Subscriptions'),
-        },
-        {
-            id: 'report',
-            title: 'Report Issue',
-            subtitle: 'Submit outage report',
-            icon: 'document',
-            iconColor: colors.alertYellow,
-            iconBg: colors.alertYellowBg,
-            action: () => navigation.navigate('Reports'),
-        },
-        {
-            id: 'alerts',
-            title: 'Alerts',
-            subtitle: 'Latest notices',
-            icon: 'bell',
-            iconColor: colors.alertPurple,
-            iconBg: colors.alertPurpleBg,
-            action: () => navigation.navigate('Notifications'),
-        },
-    ];
-
-    const customerName = user?.firstName || 'Resident';
-
-    if (loadError) {
+    if (error || !data || !summary) {
         return (
-            <SafeAreaView style={styles.safeArea}>
-                <AppHeader
-                    showBrand
-                    avatarLetter={customerName.charAt(0).toUpperCase()}
-                    onBellPress={() => navigation.navigate('Notifications')}
-                    onProfilePress={() => navigation.navigate('Profile')}
-                />
-                <View style={styles.errorContainer}>
-                    <ErrorState
-                        title="Unable to load your data"
-                        description="We couldn't reach the server. Check your connection and try again."
-                        buttonTitle="Retry"
-                        onRetry={() => void loadCustomerData()}
-                    />
-                </View>
-            </SafeAreaView>
+            <View style={styles.screen}>
+                {header}
+                <ErrorState title="Couldn't load outages" description={error ?? undefined} onRetry={() => void retry()} />
+            </View>
         );
     }
 
     return (
-        <SafeAreaView style={styles.safeArea}>
-            <AppHeader
-                showBrand
-                showActions
-                avatarLetter={(user?.firstName || 'Resident').charAt(0).toUpperCase()}
-                onBellPress={() => navigation.navigate('Notifications')}
-                onProfilePress={() => navigation.navigate('Profile')}
-                unreadBadge={unreadCount}
-            />
-
+        <View style={styles.screen}>
+            {header}
             <ScrollView
-                style={styles.container}
-                contentContainerStyle={styles.scrollContent}
-                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+                contentContainerStyle={styles.content}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.primary} colors={[colors.primary]} />}
                 showsVerticalScrollIndicator={false}
             >
-                {/* Customer Greeting Card */}
-                <View style={styles.greetingCard}>
-                    <View style={styles.waterIconCircle}>
-                        <Icon name="water" size={24} color={colors.primary} />
-                    </View>
-                    <View style={styles.greetingTextCol}>
-                        <Text style={styles.greetingSub}>Hello,</Text>
-                        <Text style={styles.greetingName}>{customerName}</Text>
-                        <Text style={styles.greetingDesc}>
-                            Stay informed about utility updates affecting your home and community.
-                        </Text>
-                    </View>
+                <AreaStatusCard
+                    followed={data.subscriptions.length}
+                    active={summary.myActive}
+                    upcoming={summary.myUpcoming}
+                    onAddArea={() => navigation.navigate('AddSubscription')}
+                    onOpenOutage={(id) => navigation.navigate('OutageDetails', { outageId: id })}
+                    onManage={() => navigation.navigate('Subscriptions')}
+                />
+
+                <View style={styles.stats}>
+                    <StatTile
+                        icon="activity"
+                        color={colors.danger}
+                        bg={colors.dangerBg}
+                        value={data.active.length}
+                        label="In progress"
+                        caption="across Rwanda"
+                        onPress={() => navigation.navigate('Outages', { phase: 'active' })}
+                    />
+                    <StatTile
+                        icon="calendar"
+                        color={colors.warning}
+                        bg={colors.warningBg}
+                        value={data.upcoming.length}
+                        label="Scheduled"
+                        caption="upcoming"
+                        onPress={() => navigation.navigate('Outages', { phase: 'upcoming' })}
+                    />
+                    <StatTile
+                        icon="map-pin"
+                        color={colors.primary}
+                        bg={colors.primaryLight}
+                        value={data.subscriptions.length}
+                        label="My areas"
+                        caption="followed"
+                        onPress={() => navigation.navigate('Subscriptions')}
+                    />
                 </View>
 
-                {/* Subscribed Areas Outage Status Summary */}
-                <View style={styles.statusRow}>
-                    {/* Active Outages in Area */}
-                    <Pressable
-                        style={({ pressed }) => [styles.statusCard, pressed && styles.cardPressed]}
-                        onPress={() => navigation.navigate('Outages')}
-                    >
-                        <View style={styles.statusTopRow}>
-                            <View
-                                style={[
-                                    styles.statusDot,
-                                    { backgroundColor: activeOutages.length > 0 ? colors.alertRed : colors.activeGreen },
-                                ]}
-                            />
-                            <Text style={styles.statusCardLabel}>Active Outages</Text>
-                        </View>
-                        <Text style={styles.statusCount}>{activeOutages.length}</Text>
-                        <Text style={styles.statusSubtext}>
-                            {activeOutages.length > 0 ? 'Outages currently active' : 'All services operational'}
-                        </Text>
-                    </Pressable>
-
-                    {/* Upcoming Outages in Area */}
-                    <Pressable
-                        style={({ pressed }) => [styles.statusCard, pressed && styles.cardPressed]}
-                        onPress={() => navigation.navigate('Outages')}
-                    >
-                        <View style={styles.statusTopRow}>
-                            <View style={[styles.statusDot, { backgroundColor: colors.electricityIcon }]} />
-                            <Text style={styles.statusCardLabel}>Upcoming Outages</Text>
-                        </View>
-                        <Text style={styles.statusCount}>{upcomingOutages.length}</Text>
-                        <Text style={styles.statusSubtext}>Scheduled in utility grid</Text>
-                    </Pressable>
-                </View>
-
-                {/* My Subscriptions Summary */}
-                <View style={styles.subscriptionsCard}>
-                    <View style={styles.subsHeader}>
-                        <View style={styles.subsTitleRow}>
-                            <Icon name="subscriptions" size={18} color={colors.primary} />
-                            <Text style={styles.subsTitle}>My Subscribed Locations</Text>
-                        </View>
-                        <Pressable onPress={() => navigation.navigate('Subscriptions')} hitSlop={8}>
-                            <Text style={styles.manageLink}>Manage</Text>
-                        </Pressable>
-                    </View>
-
-                    {subscriptions.length > 0 ? (
-                        <View style={styles.subsChipsContainer}>
-                            {subscriptions.slice(0, 3).map((sub) => (
-                                <View key={sub.id} style={styles.subChip}>
-                                    <Icon
-                                        name={sub.utility?.name?.toLowerCase().includes('water') ? 'water' : 'lightning'}
-                                        size={14}
-                                        color={sub.utility?.name?.toLowerCase().includes('water') ? colors.water : colors.electricityIcon}
-                                    />
-                                    <Text style={styles.subChipText}>
-                                        {sub.location?.district || 'District'} · {sub.utility?.name || 'Utility'}
-                                    </Text>
-                                </View>
-                            ))}
-                            {subscriptions.length > 3 ? (
-                                <Text style={styles.moreSubsText}>+{subscriptions.length - 3} more</Text>
-                            ) : null}
-                        </View>
-                    ) : (
-                        <View style={styles.noSubsRow}>
-                            <Text style={styles.noSubsText}>No subscribed locations yet.</Text>
-                            <Pressable onPress={() => navigation.navigate('AddSubscription')}>
-                                <Text style={styles.addSubLink}>+ Add Location</Text>
-                            </Pressable>
-                        </View>
-                    )}
-                </View>
-
-                {/* Quick Actions */}
-                <View style={styles.quickActionsSection}>
-                    <Text style={styles.sectionHeading}>Quick Actions</Text>
-                    <View style={styles.quickActionsGrid}>
-                        {quickActions.map((qa) => (
-                            <Pressable
-                                key={qa.id}
-                                style={({ pressed }) => [styles.quickActionTile, pressed && styles.cardPressed]}
-                                onPress={qa.action}
-                            >
-                                <View style={[styles.qaIconCircle, { backgroundColor: qa.iconBg }]}>
-                                    <Icon name={qa.icon} size={20} color={qa.iconColor} />
-                                </View>
-                                <Text style={styles.qaTitle}>{qa.title}</Text>
-                                <Text style={styles.qaSubtitle}>{qa.subtitle}</Text>
-                            </Pressable>
-                        ))}
-                    </View>
-                </View>
-
-                {/* Upcoming Outages List */}
-                <View style={styles.recentSection}>
-                    <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionHeading}>Upcoming Outages</Text>
-                        <Pressable onPress={() => navigation.navigate('Outages')} hitSlop={8}>
-                            <Text style={styles.viewAllText}>View all</Text>
-                        </Pressable>
-                    </View>
-
-                    {upcomingOutages.length > 0 ? (
-                        upcomingOutages.slice(0, 3).map((outage) => (
+                {summary.mine.length > 0 ? (
+                    <View>
+                        <SectionHeader title="Affecting your areas" subtitle="Current and scheduled interruptions" />
+                        {summary.mine.slice(0, 4).map((outage) => (
                             <OutageCard
                                 key={outage.id}
                                 outage={outage}
+                                affectsYou
                                 onPress={() => navigation.navigate('OutageDetails', { outageId: outage.id })}
                             />
-                        ))
-                    ) : (
-                        <View style={styles.emptyCard}>
-                            <Text style={styles.emptyCardText}>No upcoming outages scheduled.</Text>
-                        </View>
-                    )}
-                </View>
-
-                {/* Recent Alerts Section */}
-                {recentAlerts.length > 0 ? (
-                    <View style={styles.recentSection}>
-                        <View style={styles.sectionHeader}>
-                            <Text style={styles.sectionHeading}>Recent Alerts</Text>
-                            <Pressable onPress={() => navigation.navigate('Notifications')} hitSlop={8}>
-                                <Text style={styles.viewAllText}>View all</Text>
-                            </Pressable>
-                        </View>
-
-                        {recentAlerts.map((alert) => (
-                            <Pressable
-                                key={alert.id}
-                                style={styles.alertPreviewCard}
-                                onPress={() => navigation.navigate('Notifications')}
-                            >
-                                <View style={styles.alertPreviewLeft}>
-                                    <View style={styles.alertDot} />
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={styles.alertPreviewTitle}>{alert.title}</Text>
-                                        <Text style={styles.alertPreviewMsg}>{alert.message}</Text>
-                                    </View>
-                                </View>
-                                <Text style={styles.alertPreviewTime}>
-                                    {formatRelativeTime(alert.createdAt) ?? ''}
-                                </Text>
-                            </Pressable>
                         ))}
                     </View>
                 ) : null}
-            </ScrollView>
 
-            <BottomNavigation
-                activeTab="Home"
-                onTabPress={(tab) => {
-                    if (tab === 'Outages') navigation.navigate('Outages');
-                    else if (tab === 'Subscriptions') navigation.navigate('Subscriptions');
-                    else if (tab === 'Reports') navigation.navigate('Reports');
-                    else if (tab === 'More') navigation.navigate('Profile');
-                }}
-            />
-        </SafeAreaView>
+                <View>
+                    <SectionHeader
+                        title="Coming up across Rwanda"
+                        subtitle="Planned interruptions from REG and WASAC"
+                        actionLabel="See all"
+                        onAction={() => navigation.navigate('Outages', { phase: 'upcoming' })}
+                    />
+                    {summary.elsewhere.length > 0 ? (
+                        summary.elsewhere.map((outage) => (
+                            <OutageCard key={outage.id} outage={outage} onPress={() => navigation.navigate('OutageDetails', { outageId: outage.id })} />
+                        ))
+                    ) : (
+                        <Card style={styles.emptyCard}>
+                            <Icon name="check-circle" size={20} color={colors.success} />
+                            <Text style={styles.emptyText}>No other planned interruptions have been announced.</Text>
+                        </Card>
+                    )}
+                </View>
+
+                {summary.recentAlerts.length > 0 ? (
+                    <View>
+                        <SectionHeader title="Recent alerts" actionLabel="All alerts" onAction={() => navigation.navigate('Notifications')} />
+                        <Card style={styles.alertsCard}>
+                            {summary.recentAlerts.map((alert, index) => (
+                                <Pressable
+                                    key={alert.id}
+                                    onPress={() => navigation.navigate('OutageDetails', { outageId: alert.outageId })}
+                                    style={({ pressed }) => [styles.alertRow, index > 0 && styles.alertDivider, pressed && styles.pressed]}
+                                >
+                                    <View style={[styles.alertDot, alert.isRead && styles.alertDotRead]} />
+                                    <View style={styles.alertBody}>
+                                        <Text style={styles.alertTitle} numberOfLines={1}>{alert.title}</Text>
+                                        <Text style={styles.alertMessage} numberOfLines={2}>{alert.message}</Text>
+                                    </View>
+                                    <Text style={styles.alertTime}>{formatRelativeTime(alert.createdAt) ?? ''}</Text>
+                                </Pressable>
+                            ))}
+                        </Card>
+                    </View>
+                ) : null}
+
+                <Card onPress={() => navigation.navigate('Reports', { tab: 'submit' })} style={styles.reportBanner}>
+                    <View style={styles.reportIcon}>
+                        <Icon name="message" size={20} color={colors.primary} />
+                    </View>
+                    <View style={styles.reportText}>
+                        <Text style={styles.reportTitle}>No power or water right now?</Text>
+                        <Text style={styles.reportBody}>Report an unannounced interruption in your area.</Text>
+                    </View>
+                    <Icon name="chevron-right" size={18} color={colors.textMuted} />
+                </Card>
+
+                <Text style={styles.sourceNote}>
+                    Outage information comes from official announcements by REG (electricity) and WASAC (water). Times are shown in Kigali time.
+                </Text>
+            </ScrollView>
+        </View>
+    );
+}
+
+function AreaStatusCard({
+    followed,
+    active,
+    upcoming,
+    onAddArea,
+    onOpenOutage,
+    onManage,
+}: {
+    followed: number;
+    active: Outage[];
+    upcoming: Outage[];
+    onAddArea: () => void;
+    onOpenOutage: (id: string) => void;
+    onManage: () => void;
+}) {
+    if (followed === 0) {
+        return (
+            <Card onPress={onAddArea} style={[styles.statusCard, { borderColor: colors.primarySoft }]}>
+                <View style={[styles.statusIcon, { backgroundColor: colors.primaryLight }]}>
+                    <Icon name="map-pin" size={24} color={colors.primary} />
+                </View>
+                <View style={styles.statusBody}>
+                    <Text style={styles.statusEyebrow}>Get started</Text>
+                    <Text style={styles.statusTitle}>Follow your home area</Text>
+                    <Text style={styles.statusText}>Choose your district or sector to get alerts before interruptions begin.</Text>
+                </View>
+                <Icon name="plus" size={20} color={colors.primary} />
+            </Card>
+        );
+    }
+
+    const lead = active[0] ?? upcoming[0];
+    if (lead) {
+        const isActive = Boolean(active[0]);
+        const tone = isActive ? { fg: colors.danger, bg: colors.dangerBg, border: '#F8C9C9' } : { fg: colors.warning, bg: colors.warningBg, border: '#FCD9A0' };
+        const areas = affectedAreasByDistrict(lead)
+            .map(({ district, areas: names }) => (names.length ? `${names.slice(0, 2).join(', ')} (${district})` : district))
+            .join(' · ');
+        const others = active.length + upcoming.length - 1;
+        return (
+            <Card onPress={() => onOpenOutage(lead.id)} style={[styles.statusCard, { borderColor: tone.border }]}>
+                <View style={[styles.statusIcon, { backgroundColor: tone.bg }]}>
+                    <Icon name={isActive ? 'power-off' : 'calendar'} size={24} color={tone.fg} />
+                </View>
+                <View style={styles.statusBody}>
+                    <Text style={[styles.statusEyebrow, { color: tone.fg }]}>{isActive ? 'Interruption in progress' : 'Planned interruption'}</Text>
+                    <Text style={styles.statusTitle} numberOfLines={2}>{lead.title}</Text>
+                    {areas ? <Text style={styles.statusText} numberOfLines={2}>{areas}</Text> : null}
+                    <Text style={[styles.statusMeta, { color: tone.fg }]}>{outageCountdown(lead) ?? ''}</Text>
+                    {others > 0 ? <Text style={styles.statusMore}>+{others} more affecting your areas</Text> : null}
+                </View>
+                <Icon name="chevron-right" size={20} color={colors.textMuted} />
+            </Card>
+        );
+    }
+
+    return (
+        <Card onPress={onManage} style={[styles.statusCard, { borderColor: '#BFE6CC' }]}>
+            <View style={[styles.statusIcon, { backgroundColor: colors.successBg }]}>
+                <Icon name="check-circle" size={24} color={colors.success} />
+            </View>
+            <View style={styles.statusBody}>
+                <Text style={[styles.statusEyebrow, { color: colors.success }]}>All clear</Text>
+                <Text style={styles.statusTitle}>No interruptions announced</Text>
+                <Text style={styles.statusText}>
+                    Nothing current or scheduled for the {followed} area{followed === 1 ? '' : 's'} you follow.
+                </Text>
+            </View>
+            <Icon name="chevron-right" size={20} color={colors.textMuted} />
+        </Card>
+    );
+}
+
+function StatTile({
+    icon,
+    color,
+    bg,
+    value,
+    label,
+    caption,
+    onPress,
+}: {
+    icon: IconName;
+    color: string;
+    bg: string;
+    value: number;
+    label: string;
+    caption: string;
+    onPress: () => void;
+}) {
+    return (
+        <Card onPress={onPress} style={styles.stat} accessibilityLabel={`${value} ${label} ${caption}`}>
+            <View style={[styles.statIcon, { backgroundColor: bg }]}>
+                <Icon name={icon} size={16} color={color} />
+            </View>
+            <Text style={styles.statValue}>{value}</Text>
+            <Text style={styles.statLabel}>{label}</Text>
+            <Text style={styles.statCaption}>{caption}</Text>
+        </Card>
     );
 }
 
 const styles = StyleSheet.create({
-    safeArea: {
-        flex: 1,
-        backgroundColor: colors.headerBg,
-    },
-    errorContainer: {
+    screen: {
         flex: 1,
         backgroundColor: colors.background,
     },
-    container: {
-        flex: 1,
-        backgroundColor: colors.background,
-    },
-    scrollContent: {
-        padding: 16,
-        paddingBottom: 28,
-        gap: 16,
-    },
-    greetingCard: {
-        backgroundColor: colors.surface,
-        borderRadius: 14,
-        padding: 16,
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: 14,
-        borderWidth: 1,
-        borderColor: colors.border,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 3,
-        elevation: 1,
-    },
-    waterIconCircle: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: colors.alertBlueBg,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    greetingTextCol: {
-        flex: 1,
-        gap: 2,
-    },
-    greetingSub: {
-        fontSize: 13,
-        color: colors.textSecondary,
-    },
-    greetingName: {
-        fontSize: 18,
+    greeting: {
+        fontSize: 24,
         fontWeight: '800',
-        color: colors.textPrimary,
+        color: '#FFFFFF',
+        letterSpacing: -0.3,
     },
-    greetingDesc: {
-        fontSize: 12,
-        color: colors.textSecondary,
+    date: {
+        fontSize: 13,
+        color: colors.textOnDarkMuted,
         marginTop: 4,
-        lineHeight: 16,
     },
-    statusRow: {
-        flexDirection: 'row',
-        gap: 12,
+    content: {
+        padding: 16,
+        paddingBottom: 32,
+        gap: 22,
     },
     statusCard: {
-        flex: 1,
-        backgroundColor: colors.surface,
-        borderRadius: 12,
-        padding: 14,
-        borderWidth: 1,
-        borderColor: colors.border,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.03,
-        shadowRadius: 2,
-        elevation: 1,
-        gap: 4,
-    },
-    cardPressed: {
-        opacity: 0.9,
-        transform: [{ scale: 0.99 }],
-    },
-    statusTopRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
+        gap: 14,
+        borderWidth: 1.5,
+        ...shadows.raised,
     },
-    statusDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-    },
-    statusCardLabel: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: colors.textSecondary,
-    },
-    statusCount: {
-        fontSize: 22,
-        fontWeight: '800',
-        color: colors.textPrimary,
-        marginTop: 2,
-    },
-    statusSubtext: {
-        fontSize: 11,
-        color: colors.textMuted,
-        marginTop: 2,
-    },
-    subscriptionsCard: {
-        backgroundColor: colors.surface,
-        borderRadius: 14,
-        padding: 14,
-        borderWidth: 1,
-        borderColor: colors.border,
-        gap: 10,
-    },
-    subsHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    subsTitleRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    subsTitle: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: colors.textPrimary,
-    },
-    manageLink: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: colors.primary,
-    },
-    subsChipsContainer: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-        alignItems: 'center',
-    },
-    subChip: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        backgroundColor: '#F8FAFC',
-        borderWidth: 1,
-        borderColor: colors.borderDark,
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        borderRadius: 20,
-    },
-    subChipText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: colors.textPrimary,
-    },
-    moreSubsText: {
-        fontSize: 12,
-        color: colors.textMuted,
-        fontWeight: '500',
-    },
-    noSubsRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingVertical: 4,
-    },
-    noSubsText: {
-        fontSize: 13,
-        color: colors.textSecondary,
-    },
-    addSubLink: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: colors.primary,
-    },
-    quickActionsSection: {
-        gap: 10,
-    },
-    sectionHeading: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: colors.textPrimary,
-    },
-    quickActionsGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 10,
-    },
-    quickActionTile: {
-        width: '48%',
-        backgroundColor: colors.surface,
-        borderRadius: 12,
-        padding: 12,
-        borderWidth: 1,
-        borderColor: colors.border,
-        gap: 4,
-    },
-    qaIconCircle: {
-        width: 36,
-        height: 36,
+    statusIcon: {
+        width: 52,
+        height: 52,
         borderRadius: 18,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 4,
     },
-    qaTitle: {
-        fontSize: 14,
+    statusBody: {
+        flex: 1,
+        gap: 3,
+    },
+    statusEyebrow: {
+        fontSize: 11,
+        fontWeight: '800',
+        letterSpacing: 0.8,
+        textTransform: 'uppercase',
+        color: colors.primary,
+    },
+    statusTitle: {
+        fontSize: 16,
+        fontWeight: '800',
+        color: colors.textPrimary,
+    },
+    statusText: {
+        fontSize: 13,
+        color: colors.textSecondary,
+        lineHeight: 18,
+    },
+    statusMeta: {
+        fontSize: 12,
+        fontWeight: '700',
+        marginTop: 2,
+    },
+    statusMore: {
+        fontSize: 12,
+        color: colors.textMuted,
+        fontWeight: '600',
+    },
+    stats: {
+        flexDirection: 'row',
+        gap: 10,
+    },
+    stat: {
+        flex: 1,
+        padding: 14,
+        gap: 2,
+    },
+    statIcon: {
+        width: 30,
+        height: 30,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 8,
+    },
+    statValue: {
+        fontSize: 24,
+        fontWeight: '800',
+        color: colors.textPrimary,
+        letterSpacing: -0.5,
+    },
+    statLabel: {
+        fontSize: 13,
         fontWeight: '700',
         color: colors.textPrimary,
     },
-    qaSubtitle: {
+    statCaption: {
         fontSize: 11,
-        color: colors.textSecondary,
-    },
-    recentSection: {
-        gap: 10,
-    },
-    sectionHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    viewAllText: {
-        fontSize: 13,
-        color: colors.primary,
-        fontWeight: '600',
-    },
-    emptyCard: {
-        backgroundColor: colors.surface,
-        borderRadius: 12,
-        padding: 16,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    emptyCardText: {
-        fontSize: 13,
         color: colors.textMuted,
     },
-    alertPreviewCard: {
-        backgroundColor: colors.surface,
-        borderRadius: 12,
-        padding: 12,
-        borderWidth: 1,
-        borderColor: colors.border,
+    emptyCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        gap: 12,
     },
-    alertPreviewLeft: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
+    emptyText: {
         flex: 1,
+        fontSize: 13,
+        color: colors.textSecondary,
+        lineHeight: 18,
+    },
+    alertsCard: {
+        padding: 0,
+    },
+    alertRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+        padding: 14,
+    },
+    alertDivider: {
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: colors.border,
+    },
+    pressed: {
+        backgroundColor: colors.surfaceSubtle,
     },
     alertDot: {
         width: 8,
         height: 8,
         borderRadius: 4,
-        backgroundColor: colors.primary,
+        backgroundColor: colors.unreadDot,
+        marginTop: 6,
     },
-    alertPreviewTitle: {
-        fontSize: 13,
+    alertDotRead: {
+        backgroundColor: colors.borderDark,
+    },
+    alertBody: {
+        flex: 1,
+    },
+    alertTitle: {
+        fontSize: 14,
         fontWeight: '700',
         color: colors.textPrimary,
     },
-    alertPreviewMsg: {
+    alertMessage: {
         fontSize: 12,
         color: colors.textSecondary,
+        marginTop: 2,
+        lineHeight: 17,
     },
-    alertPreviewTime: {
+    alertTime: {
         fontSize: 11,
         color: colors.textMuted,
-        paddingLeft: 8,
+    },
+    reportBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 14,
+        backgroundColor: colors.primaryLight,
+        borderColor: colors.primarySoft,
+    },
+    reportIcon: {
+        width: 42,
+        height: 42,
+        borderRadius: radius.md,
+        backgroundColor: colors.surface,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    reportText: {
+        flex: 1,
+    },
+    reportTitle: {
+        fontSize: 15,
+        fontWeight: '800',
+        color: colors.primaryDark,
+    },
+    reportBody: {
+        fontSize: 13,
+        color: colors.textSecondary,
+        marginTop: 2,
+    },
+    sourceNote: {
+        fontSize: 11,
+        lineHeight: 16,
+        color: colors.textMuted,
+        textAlign: 'center',
+        paddingHorizontal: 12,
     },
 });

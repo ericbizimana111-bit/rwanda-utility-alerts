@@ -1,298 +1,157 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    FlatList,
-    Pressable,
-    SafeAreaView,
-    Modal,
-    ActivityIndicator,
-} from 'react-native';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/types';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, RefreshControl } from 'react-native';
+import { TabScreenProps } from '../navigation/types';
 import { colors } from '../theme/colors';
 import { AppHeader } from '../components/AppHeader';
-import { BottomNavigation } from '../components/BottomNavigation';
 import { SubscriptionCard } from '../components/SubscriptionCard';
 import { LoadingState } from '../components/LoadingState';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
-import { Icon } from '../components/Icon';
-import { api, ApiError, Subscription } from '../api/client';
+import { Dialog } from '../components/Dialog';
+import { Button, InfoNote } from '../components/ui';
+import { api, errorMessage, Subscription } from '../api/client';
+import { useLoader } from '../hooks/useLoader';
+import { locationLabel, outageAffectsSubscription, outagePhase, UTILITY_THEME, utilityKind } from '../utils/outage';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Subscriptions'>;
+async function loadAreas() {
+    const [subscriptions, active, upcoming] = await Promise.all([
+        api.getSubscriptions(),
+        api.getActiveOutages().catch(() => []),
+        api.getUpcomingOutages().catch(() => []),
+    ]);
+    return { subscriptions, outages: [...active, ...upcoming].filter((outage) => outagePhase(outage) !== 'ended') };
+}
 
-export function SubscriptionsScreen({ navigation }: Props) {
-    const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [selectedSub, setSelectedSub] = useState<Subscription | null>(null);
-    const [deleting, setDeleting] = useState(false);
-    const [actionError, setActionError] = useState<string | null>(null);
+export function SubscriptionsScreen({ navigation }: TabScreenProps<'Subscriptions'>) {
+    const { data, setData, error, loading, refreshing, refresh, retry } = useLoader(loadAreas, 'Unable to load the areas you follow.');
+    const [selected, setSelected] = useState<Subscription | null>(null);
+    const [removing, setRemoving] = useState(false);
+    const [removeError, setRemoveError] = useState<string | null>(null);
 
-    const loadSubscriptions = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const data = await api.getSubscriptions();
-            setSubscriptions(data);
-        } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'Unable to load your subscriptions.');
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        const unsubscribe = navigation.addListener('focus', () => {
-            void loadSubscriptions();
-        });
-        void loadSubscriptions();
-        return unsubscribe;
-    }, [navigation, loadSubscriptions]);
-
-    async function handleRemoveSubscription() {
-        if (!selectedSub) return;
-        setDeleting(true);
-        setActionError(null);
-        try {
-            await api.deleteSubscription(selectedSub.id);
-            setSubscriptions((prev) => prev.filter((s) => s.id !== selectedSub.id));
-            setSelectedSub(null);
-        } catch (err) {
-            setActionError(
-                err instanceof ApiError ? err.message : 'Unable to remove this subscription right now.'
+    const counts = useMemo(() => {
+        const result = new Map<string, number>();
+        for (const subscription of data?.subscriptions ?? []) {
+            result.set(
+                subscription.id,
+                (data?.outages ?? []).filter((outage) => outageAffectsSubscription(outage, subscription)).length,
             );
+        }
+        return result;
+    }, [data]);
+
+    async function remove() {
+        if (!selected || !data) return;
+        setRemoving(true);
+        setRemoveError(null);
+        try {
+            await api.deleteSubscription(selected.id);
+            setData({ ...data, subscriptions: data.subscriptions.filter((item) => item.id !== selected.id) });
+            setSelected(null);
+        } catch (err) {
+            setRemoveError(errorMessage(err, 'Unable to remove this area right now.'));
         } finally {
-            setDeleting(false);
+            setRemoving(false);
         }
     }
 
+    const count = data?.subscriptions.length ?? 0;
+
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={styles.screen}>
             <AppHeader
-                title="Subscriptions"
-                showBack
-                onBack={() => navigation.navigate('Home')}
+                title="My areas"
+                subtitle={count ? `Following ${count} area${count === 1 ? '' : 's'}` : 'Choose where you want alerts'}
             />
 
-            <View style={styles.container}>
-                {/* Subscriptions List */}
-                {loading ? (
-                    <LoadingState message="Loading subscriptions..." />
-                ) : error ? (
-                    <ErrorState
-                        title="Unable to load subscriptions"
-                        description={error}
-                        buttonTitle="Retry"
-                        onRetry={() => void loadSubscriptions()}
-                    />
-                ) : subscriptions.length === 0 ? (
-                    <EmptyState
-                        title="No subscriptions yet"
-                        description="Subscribe to your home or office neighborhood to receive outage alerts."
-                        buttonTitle="+ Add Subscription"
-                        onButtonPress={() => navigation.navigate('AddSubscription')}
-                    />
-                ) : (
-                    <View style={styles.content}>
-                        <FlatList
-                            data={subscriptions}
-                            keyExtractor={(item) => item.id}
-                            contentContainerStyle={styles.listContent}
-                            renderItem={({ item }) => (
-                                <SubscriptionCard
-                                    subscription={item}
-                                    onManage={() => setSelectedSub(item)}
-                                />
-                            )}
-                            showsVerticalScrollIndicator={false}
+            {loading ? (
+                <LoadingState rows={3} />
+            ) : error ? (
+                <ErrorState title="Couldn't load your areas" description={error} onRetry={() => void retry()} />
+            ) : (
+                <FlatList
+                    data={data?.subscriptions ?? []}
+                    keyExtractor={(item) => item.id}
+                    contentContainerStyle={count ? styles.list : styles.emptyList}
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.primary} colors={[colors.primary]} />}
+                    ListHeaderComponent={
+                        count ? (
+                            <View style={styles.headerBlock}>
+                                <Button title="Follow another area" icon="plus" onPress={() => navigation.navigate('AddSubscription')} />
+                                <InfoNote>
+                                    Following a whole district alerts you about every sector in it. Following a sector also alerts you when the whole district is affected.
+                                </InfoNote>
+                            </View>
+                        ) : null
+                    }
+                    renderItem={({ item }) => (
+                        <SubscriptionCard
+                            subscription={item}
+                            outageCount={counts.get(item.id) ?? 0}
+                            onRemove={() => {
+                                setRemoveError(null);
+                                setSelected(item);
+                            }}
                         />
+                    )}
+                    ListEmptyComponent={
+                        <EmptyState
+                            icon="map-pin"
+                            title="You're not following any area yet"
+                            description="Follow your home, work or family's area to get alerts before electricity or water interruptions begin."
+                            buttonTitle="Follow an area"
+                            onButtonPress={() => navigation.navigate('AddSubscription')}
+                        />
+                    }
+                    showsVerticalScrollIndicator={false}
+                />
+            )}
 
-                        {/* + Add Subscription Button */}
-                        <View style={styles.bottomCtaContainer}>
-                            <Pressable
-                                style={({ pressed }) => [styles.addBtn, pressed && styles.btnPressed]}
-                                onPress={() => navigation.navigate('AddSubscription')}
-                            >
-                                <Icon name="plus" size={18} color="#FFFFFF" />
-                                <Text style={styles.addBtnText}>Add Subscription</Text>
-                            </Pressable>
-                        </View>
-                    </View>
-                )}
-            </View>
-
-            {/* Manage / Remove Subscription Modal */}
-            <Modal visible={!!selectedSub} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalCard}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Manage Subscription</Text>
-                            <Pressable onPress={() => setSelectedSub(null)} hitSlop={10}>
-                                <Icon name="close" size={20} color={colors.textSecondary} />
-                            </Pressable>
-                        </View>
-
-                        <Text style={styles.modalSubDesc}>
-                            {selectedSub?.location?.district} — {selectedSub?.utility?.name}
-                        </Text>
-                        <Text style={styles.modalPrompt}>
-                            Do you want to stop receiving utility outage alerts for this location?
-                        </Text>
-
-                        {actionError ? <Text style={styles.actionErrorText}>{actionError}</Text> : null}
-
-                        <View style={styles.modalActionsRow}>
-                            <Pressable
-                                style={styles.cancelBtn}
-                                onPress={() => setSelectedSub(null)}
-                                disabled={deleting}
-                            >
-                                <Text style={styles.cancelBtnText}>Keep</Text>
-                            </Pressable>
-
-                            <Pressable
-                                style={styles.deleteBtn}
-                                onPress={() => void handleRemoveSubscription()}
-                                disabled={deleting}
-                            >
-                                {deleting ? (
-                                    <ActivityIndicator color="#FFFFFF" size="small" />
-                                ) : (
-                                    <Text style={styles.deleteBtnText}>Remove</Text>
-                                )}
-                            </Pressable>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
-
-            <BottomNavigation
-                activeTab="Subscriptions"
-                onTabPress={(tab) => {
-                    if (tab === 'Home') navigation.navigate('Home');
-                    else if (tab === 'Outages') navigation.navigate('Outages');
-                    else if (tab === 'Reports') navigation.navigate('Reports');
-                    else if (tab === 'More') navigation.navigate('Profile');
-                }}
-            />
-        </SafeAreaView>
+            <Dialog
+                visible={!!selected}
+                onClose={() => setSelected(null)}
+                icon="bell-off"
+                tone="danger"
+                title="Stop following this area?"
+                message={
+                    selected
+                        ? `You will no longer get ${UTILITY_THEME[utilityKind(selected.utility)].label.toLowerCase()} alerts for ${locationLabel(selected.location)}.`
+                        : undefined
+                }
+                dismissable={!removing}
+                actions={
+                    <>
+                        <Button title="Keep" variant="ghost" size="md" onPress={() => setSelected(null)} disabled={removing} style={styles.flex} />
+                        <Button title="Stop alerts" variant="danger" size="md" onPress={() => void remove()} loading={removing} style={styles.flex} />
+                    </>
+                }
+            >
+                {removeError ? <Text style={styles.error}>{removeError}</Text> : null}
+            </Dialog>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    safeArea: {
-        flex: 1,
-        backgroundColor: colors.headerBg,
-    },
-    container: {
+    screen: {
         flex: 1,
         backgroundColor: colors.background,
     },
-    content: {
-        flex: 1,
-    },
-    listContent: {
+    list: {
         padding: 16,
-        paddingBottom: 80,
+        paddingBottom: 32,
     },
-    bottomCtaContainer: {
-        position: 'absolute',
-        bottom: 16,
-        left: 16,
-        right: 16,
+    emptyList: {
+        flexGrow: 1,
     },
-    addBtn: {
-        backgroundColor: colors.primary,
-        borderRadius: 8,
-        height: 48,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        shadowColor: colors.primary,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    btnPressed: {
-        opacity: 0.9,
-    },
-    addBtnText: {
-        color: '#FFFFFF',
-        fontWeight: '700',
-        fontSize: 15,
-    },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.45)',
-        justifyContent: 'center',
-        padding: 24,
-    },
-    modalCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 14,
-        padding: 20,
+    headerBlock: {
         gap: 12,
+        marginBottom: 16,
     },
-    modalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    modalTitle: {
-        fontSize: 17,
-        fontWeight: '700',
-        color: colors.textPrimary,
-    },
-    modalSubDesc: {
-        fontSize: 15,
-        fontWeight: '600',
-        color: colors.primary,
-        marginTop: 4,
-    },
-    modalPrompt: {
-        fontSize: 13,
-        color: colors.textSecondary,
-        lineHeight: 18,
-    },
-    modalActionsRow: {
-        flexDirection: 'row',
-        gap: 12,
-        marginTop: 8,
-    },
-    cancelBtn: {
+    flex: {
         flex: 1,
-        paddingVertical: 11,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: colors.borderDark,
-        alignItems: 'center',
-        justifyContent: 'center',
     },
-    cancelBtnText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: colors.textPrimary,
-    },
-    deleteBtn: {
-        flex: 1,
-        backgroundColor: colors.logoutRed,
-        paddingVertical: 11,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    deleteBtnText: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: '#FFFFFF',
-    },
-    actionErrorText: {
-        color: colors.alertRed,
+    error: {
         fontSize: 13,
+        color: colors.danger,
     },
 });

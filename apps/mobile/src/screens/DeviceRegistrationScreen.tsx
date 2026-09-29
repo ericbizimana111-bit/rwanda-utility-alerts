@@ -1,276 +1,198 @@
-import React, { useState, useEffect } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    ActivityIndicator,
-} from 'react-native';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/types';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Linking } from 'react-native';
+import { RootScreenProps } from '../navigation/types';
 import { colors } from '../theme/colors';
 import { AppHeader } from '../components/AppHeader';
-import { Icon } from '../components/Icon';
-import { ErrorState } from '../components/ErrorState';
-import { api, ApiError } from '../api/client';
-import {
-    ensurePushRegistration,
-    PushRegistrationOutcome,
-} from '../notifications/service';
+import { Icon, IconName } from '../components/Icon';
+import { Button, Card, InfoNote } from '../components/ui';
+import { api, errorMessage } from '../api/client';
+import { useAuthStore } from '../auth/store';
+import { ensurePushRegistration, PushRegistrationOutcome } from '../notifications/service';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'DeviceRegistration'>;
-
-const OUTCOME_MESSAGES: Record<PushRegistrationOutcome, string> = {
-    registered: 'Your device is registered for push notifications.',
-    'not-device':
-        'Push registration requires a physical device. Emulators cannot receive Expo push notifications.',
-    'permission-denied':
-        'Notification permission was not granted. Enable notifications for this app in system settings and try again.',
-    'no-token':
-        'Could not obtain a push token from Expo services. Check your connection and try again.',
-    rejected:
-        'The server rejected the device registration. Make sure you are signed in and try again.',
+const OUTCOMES: Record<Exclude<PushRegistrationOutcome, 'registered'>, { title: string; message: string; icon: IconName; settings?: boolean }> = {
+    'not-device': {
+        title: 'Physical phone required',
+        message: 'Push notifications only work on a real phone, not on an emulator or simulator.',
+        icon: 'device',
+    },
+    'permission-denied': {
+        title: 'Notifications are turned off',
+        message: 'Allow notifications for Rwanda Utility Alerts in your phone settings, then try again.',
+        icon: 'bell-off',
+        settings: true,
+    },
+    'no-token': {
+        title: 'Could not set up push notifications',
+        message: 'The push notification service could not be reached. Check your internet connection and try again.',
+        icon: 'alert',
+    },
+    rejected: {
+        title: 'Registration was not accepted',
+        message: 'The server did not accept this device. Sign out and back in, then try again.',
+        icon: 'alert',
+    },
 };
 
-export function DeviceRegistrationScreen({ navigation }: Props) {
+/** Shows only the start and end of long identifiers. */
+function mask(value: string | null): string {
+    if (!value) return 'Unknown';
+    return value.length > 18 ? `${value.slice(0, 10)}…${value.slice(-6)}` : value;
+}
+
+export function DeviceRegistrationScreen({ navigation }: RootScreenProps<'DeviceRegistration'>) {
     const [status, setStatus] = useState<'loading' | 'registered' | 'error'>('loading');
+    const [outcome, setOutcome] = useState<Exclude<PushRegistrationOutcome, 'registered'> | null>(null);
     const [deviceId, setDeviceId] = useState<string | null>(null);
     const [pushToken, setPushToken] = useState<string | null>(null);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [errorText, setErrorText] = useState<string | null>(null);
+    const notificationsEnabled = useAuthStore((state) => state.user?.notificationsEnabled !== false);
 
-    async function runRegistration() {
+    async function register() {
         setStatus('loading');
-        setErrorMessage(null);
+        setOutcome(null);
+        setErrorText(null);
         try {
-            const outcome = await ensurePushRegistration();
-            if (outcome === 'registered') {
-                const [storedId, storedToken] = await Promise.all([
-                    api.getStoredDeviceId(),
-                    api.getStoredDeviceToken(),
-                ]);
+            const result = await ensurePushRegistration();
+            if (result === 'registered') {
+                const [storedId, storedToken] = await Promise.all([api.getStoredDeviceId(), api.getStoredDeviceToken()]);
                 if (storedId) {
                     setDeviceId(storedId);
                     setPushToken(storedToken);
                     setStatus('registered');
+                    useAuthStore.setState({ pushStatus: 'registered' });
                     return;
                 }
-                // Token registered with Expo but no stored device ID: treat as
-                // an error so the user sees the real state, not a fake success.
-                setErrorMessage('Registration succeeded but no device ID was stored. Please retry.');
+                setErrorText('The device was registered but its ID was not saved. Please try again.');
                 setStatus('error');
                 return;
             }
-            setErrorMessage(OUTCOME_MESSAGES[outcome]);
+            setOutcome(result);
             setStatus('error');
         } catch (err) {
-            setErrorMessage(
-                err instanceof ApiError ? err.message : 'Device registration failed unexpectedly.'
-            );
+            setErrorText(errorMessage(err, 'Device registration failed unexpectedly.'));
             setStatus('error');
         }
     }
 
     useEffect(() => {
-        void runRegistration();
+        void register();
     }, []);
 
-    if (status === 'loading') {
-        return (
-            <SafeAreaView style={styles.safeArea}>
-                <AppHeader
-                    title="Device Registration"
-                    showBack
-                    onBack={() => navigation.goBack()}
-                />
-                <View style={styles.centered}>
-                    <ActivityIndicator size="large" color={colors.primary} />
-                    <Text style={styles.loadingText}>Registering your device for push alerts...</Text>
-                </View>
-            </SafeAreaView>
-        );
-    }
-
-    if (status === 'error') {
-        return (
-            <SafeAreaView style={styles.safeArea}>
-                <AppHeader
-                    title="Device Registration"
-                    showBack
-                    onBack={() => navigation.goBack()}
-                />
-                <ErrorState
-                    title="Registration failed"
-                    description={errorMessage ?? 'An unknown error occurred.'}
-                    buttonTitle="Try Again"
-                    onRetry={() => void runRegistration()}
-                />
-            </SafeAreaView>
-        );
-    }
+    const failure = outcome ? OUTCOMES[outcome] : null;
 
     return (
-        <SafeAreaView style={styles.safeArea}>
-            <AppHeader
-                title="Device Registration"
-                showBack
-                onBack={() => navigation.goBack()}
-            />
-
-            <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-                {/* Checkmark Circle */}
-                <View style={styles.checkCircle}>
-                    <Icon name="check" size={36} color="#FFFFFF" />
-                </View>
-
-                {/* Status Text */}
-                <Text style={styles.title}>Device Registered!</Text>
-                <Text style={styles.subtitle}>
-                    {errorMessage ?? 'Your device has been successfully registered for push notifications.'}
-                </Text>
-
-                {/* Device ID Card (real ID returned by POST /devices) */}
-                <View style={styles.deviceCard}>
-                    <View style={styles.cardHeader}>
-                        <Text style={styles.deviceLabel}>Device ID</Text>
-                    </View>
-                    <View style={styles.codeBox}>
-                        <Text style={styles.codeText}>{deviceId ?? 'Unknown'}</Text>
-                    </View>
-                </View>
-
-                {/* Push Token Card (real Expo push token) */}
-                {pushToken ? (
-                    <View style={styles.deviceCard}>
-                        <View style={styles.cardHeader}>
-                            <Text style={styles.deviceLabel}>Push Token</Text>
-                        </View>
-                        <View style={styles.codeBox}>
-                            <Text style={styles.codeText}>{pushToken}</Text>
-                        </View>
-                    </View>
-                ) : null}
-
-                {/* Register Another Device / Retry */}
-                <Pressable
-                    style={({ pressed }) => [styles.detailsBtn, pressed && styles.btnPressed]}
-                    onPress={() => void runRegistration()}
-                >
-                    <Text style={styles.detailsBtnText}>Re-register Device</Text>
-                </Pressable>
+        <View style={styles.screen}>
+            <AppHeader title="Push notifications" subtitle="This device" showBack onBack={() => navigation.goBack()} />
+            <ScrollView contentContainerStyle={styles.content}>
+                {status === 'loading' ? (
+                    <Card style={styles.center}>
+                        <ActivityIndicator size="large" color={colors.primary} />
+                        <Text style={styles.title}>Setting up notifications…</Text>
+                        <Text style={styles.body}>Registering this phone to receive outage alerts.</Text>
+                    </Card>
+                ) : status === 'registered' ? (
+                    <>
+                        <Card style={styles.center}>
+                            <View style={[styles.statusIcon, { backgroundColor: colors.successBg }]}>
+                                <Icon name="check-circle" size={34} color={colors.success} />
+                            </View>
+                            <Text style={styles.title}>This phone will receive alerts</Text>
+                            <Text style={styles.body}>
+                                You'll get a notification as soon as an interruption is announced for an area you follow.
+                            </Text>
+                        </Card>
+                        {!notificationsEnabled ? (
+                            <InfoNote tone="warning" icon="bell-off">
+                                Outage alerts are paused for your account. Turn them back on in Profile → Outage alerts.
+                            </InfoNote>
+                        ) : null}
+                        <Card style={styles.details}>
+                            <Detail label="Device ID" value={mask(deviceId)} />
+                            <Detail label="Push token" value={mask(pushToken)} />
+                        </Card>
+                        <Button title="Register again" icon="refresh" variant="secondary" onPress={() => void register()} />
+                    </>
+                ) : (
+                    <>
+                        <Card style={styles.center}>
+                            <View style={[styles.statusIcon, { backgroundColor: colors.dangerBg }]}>
+                                <Icon name={failure?.icon ?? 'alert'} size={32} color={colors.danger} />
+                            </View>
+                            <Text style={styles.title}>{failure?.title ?? 'Registration failed'}</Text>
+                            <Text style={styles.body}>{failure?.message ?? errorText}</Text>
+                        </Card>
+                        {failure?.settings ? (
+                            <Button title="Open phone settings" icon="external" variant="secondary" onPress={() => void Linking.openSettings()} />
+                        ) : null}
+                        <Button title="Try again" icon="refresh" onPress={() => void register()} />
+                        <InfoNote>You can still see all outages and alerts inside the app without push notifications.</InfoNote>
+                    </>
+                )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
+    );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+    return (
+        <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>{label}</Text>
+            <Text style={styles.detailValue}>{value}</Text>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    safeArea: {
-        flex: 1,
-        backgroundColor: colors.headerBg,
-    },
-    container: {
+    screen: {
         flex: 1,
         backgroundColor: colors.background,
     },
-    scrollContent: {
-        alignItems: 'center',
-        paddingHorizontal: 24,
-        paddingTop: 48,
-        paddingBottom: 32,
-    },
-    centered: {
-        flex: 1,
-        backgroundColor: colors.background,
-        alignItems: 'center',
-        justifyContent: 'center',
+    content: {
+        padding: 16,
         gap: 14,
-        padding: 24,
     },
-    loadingText: {
-        fontSize: 14,
-        color: colors.textSecondary,
-        textAlign: 'center',
+    center: {
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 28,
     },
-    checkCircle: {
-        width: 68,
-        height: 68,
-        borderRadius: 34,
-        backgroundColor: colors.activeGreen,
+    statusIcon: {
+        width: 72,
+        height: 72,
+        borderRadius: 24,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 20,
-        shadowColor: colors.activeGreen,
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.3,
-        shadowRadius: 6,
-        elevation: 4,
+        marginBottom: 4,
     },
     title: {
-        fontSize: 20,
+        fontSize: 18,
         fontWeight: '800',
         color: colors.textPrimary,
-        marginBottom: 8,
         textAlign: 'center',
     },
-    subtitle: {
+    body: {
         fontSize: 14,
         color: colors.textSecondary,
         textAlign: 'center',
         lineHeight: 20,
-        marginBottom: 32,
-        paddingHorizontal: 16,
+        paddingHorizontal: 8,
     },
-    deviceCard: {
-        width: '100%',
-        backgroundColor: colors.surface,
-        borderRadius: 12,
-        padding: 16,
-        borderWidth: 1,
-        borderColor: colors.border,
-        gap: 8,
-        marginBottom: 16,
+    details: {
+        gap: 12,
     },
-    cardHeader: {
+    detailRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
     },
-    deviceLabel: {
-        fontSize: 12,
-        fontWeight: '600',
+    detailLabel: {
+        fontSize: 13,
         color: colors.textSecondary,
-    },
-    codeBox: {
-        backgroundColor: '#F8FAFC',
-        borderRadius: 6,
-        padding: 10,
-        borderWidth: 1,
-        borderColor: colors.borderDark,
-    },
-    codeText: {
-        fontFamily: 'monospace',
-        fontSize: 12,
-        color: colors.textPrimary,
-        letterSpacing: 0.5,
-    },
-    detailsBtn: {
-        backgroundColor: colors.surface,
-        borderWidth: 1.5,
-        borderColor: colors.borderDark,
-        borderRadius: 8,
-        paddingVertical: 12,
-        paddingHorizontal: 36,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginTop: 8,
-    },
-    btnPressed: {
-        backgroundColor: '#F1F5F9',
-    },
-    detailsBtnText: {
-        color: colors.textPrimary,
         fontWeight: '600',
-        fontSize: 14,
+    },
+    detailValue: {
+        fontSize: 13,
+        color: colors.textPrimary,
+        fontFamily: 'monospace',
     },
 });

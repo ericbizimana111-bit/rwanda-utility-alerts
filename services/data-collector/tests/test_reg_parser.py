@@ -75,4 +75,45 @@ def test_reg_normalizer_preserves_time_ranges_and_dates():
         "%Y-%m-%d %H:%M:%S") == "2026-09-11 12:00:00"
     assert normalized[0].end_time.strftime(
         "%Y-%m-%d %H:%M:%S") == "2026-09-11 14:00:00"
-    assert normalized[0].status == "planned"
+    # REG marks this row "Current", i.e. the interruption is under way.
+    assert normalized[0].status == "active"
+
+
+LIVE_FORMAT_HTML = """
+<table>
+  <tr><th>Date</th><th>Time</th><th>District Affected</th><th>Sector / Areas</th><th>Reason</th><th>Status</th></tr>
+  <tr>
+    <td>29th September 2026</td>
+    <td>12:00 PM - 02:00 PM</td>
+    <td>Kicukiro &amp; Gasabo</td>
+    <td>Niboye, Kicukiro, Kagarama, Gatenga in Kicukiro; Remera, Kimihurura in Gasabo</td>
+    <td>Extension and upgrading works on "Sonatube" &amp; "Pylon 20" feeders</td>
+    <td>Planned</td>
+  </tr>
+  <tr>
+    <td>28th September 2026</td>
+    <td>12:00 PM - 02:00 PM</td>
+    <td>Kicukiro &amp; Nyarugenge</td>
+    <td>kigarama in Kicukiro; Nyamirambo, Mageragere in Nyarugenge</td>
+    <td>Maintenance and extension works on "Rebero" feeder</td>
+    <td>Past</td>
+  </tr>
+</table>
+"""
+
+
+def test_reg_live_format_uses_written_year_and_kigali_time():
+    rows = RegParser.parse(LIVE_FORMAT_HTML)
+    assert len(rows) == 1  # "Past" rows are skipped
+
+    normalized = RegNormalizer.normalize(
+        rows[0], "https://www.reg.rw/customer-service/power-outages/")
+    by_district = {item.district: item for item in normalized}
+
+    assert set(by_district) == {"Kicukiro", "Gasabo"}
+    assert by_district["Kicukiro"].sector == "Niboye, Kicukiro, Kagarama, Gatenga"
+    assert by_district["Gasabo"].sector == "Remera, Kimihurura"
+    assert by_district["Gasabo"].province == "City of Kigali"
+    assert by_district["Gasabo"].start_time.isoformat() == "2026-09-29T12:00:00+02:00"
+    assert by_district["Gasabo"].end_time.isoformat() == "2026-09-29T14:00:00+02:00"
+    assert by_district["Gasabo"].description.startswith("Reason: Extension and upgrading works")

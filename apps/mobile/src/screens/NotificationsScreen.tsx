@@ -1,197 +1,127 @@
-import React, { useEffect, useState } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    FlatList,
-    Pressable,
-    SafeAreaView,
-} from 'react-native';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/types';
+import React, { useMemo, useState } from 'react';
+import { View, StyleSheet, FlatList, RefreshControl, Pressable, Text } from 'react-native';
+import { RootScreenProps } from '../navigation/types';
 import { colors } from '../theme/colors';
 import { AppHeader } from '../components/AppHeader';
-import { BottomNavigation } from '../components/BottomNavigation';
 import { NotificationCard } from '../components/NotificationCard';
 import { LoadingState } from '../components/LoadingState';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
-import { api, ApiError, NotificationItem } from '../api/client';
-import { formatRelativeTime } from '../utils/format';
+import { SegmentedControl } from '../components/ui';
+import { api, NotificationItem } from '../api/client';
+import { useLoader } from '../hooks/useLoader';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Notifications'>;
-type TabType = 'all' | 'unread' | 'read';
+type Filter = 'all' | 'unread';
 
-export function NotificationsScreen({ navigation }: Props) {
-    const [activeTab, setActiveTab] = useState<TabType>('all');
-    const [items, setItems] = useState<NotificationItem[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+export function NotificationsScreen({ navigation }: RootScreenProps<'Notifications'>) {
+    const [filter, setFilter] = useState<Filter>('all');
+    const [markingAll, setMarkingAll] = useState(false);
+    const { data, setData, error, loading, refreshing, refresh, retry } = useLoader(
+        () => api.getNotificationList(),
+        'Unable to load your alerts.',
+    );
 
-    async function loadNotifications() {
-        setLoading(true);
-        setError(null);
-        try {
-            const data = await api.getNotificationList();
-            setItems(data);
-        } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'Unable to load your notifications.');
-        } finally {
-            setLoading(false);
-        }
+    const items = data ?? [];
+    const unread = items.filter((item) => !item.isRead);
+    const shown = useMemo(() => (filter === 'unread' ? items.filter((item) => !item.isRead) : items), [items, filter]);
+
+    function markLocally(ids: string[]) {
+        setData((current) => (current ?? []).map((item) => (ids.includes(item.id) ? { ...item, isRead: true } : item)));
     }
 
-    useEffect(() => {
-        void loadNotifications();
-    }, []);
-
-    const filteredItems = items.filter((item) => {
-        if (activeTab === 'unread') return !item.isRead;
-        if (activeTab === 'read') return item.isRead;
-        return true;
-    });
-
-    async function handleNotificationPress(item: NotificationItem) {
+    async function open(item: NotificationItem) {
         if (!item.isRead) {
-            try {
-                await api.markNotificationRead(item.id);
-                setItems((prev) =>
-                    prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
-                );
-            } catch {
-                // Marking as read failed; the notification stays unread and can
-                // be tapped again. Navigation still proceeds.
-            }
+            markLocally([item.id]);
+            api.markNotificationRead(item.id).catch(() => undefined);
         }
-        // Any notification tied to a real outage opens that outage. Real IDs
-        // are UUIDs, so no format sniffing is needed.
-        if (item.outageId) {
-            navigation.navigate('OutageDetails', { outageId: item.outageId });
-        }
+        if (item.outageId) navigation.navigate('OutageDetails', { outageId: item.outageId });
+    }
+
+    async function markAllRead() {
+        setMarkingAll(true);
+        const ids = unread.map((item) => item.id);
+        const results = await Promise.allSettled(ids.map((id) => api.markNotificationRead(id)));
+        markLocally(ids.filter((_, index) => results[index].status === 'fulfilled'));
+        setMarkingAll(false);
     }
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <View style={styles.screen}>
             <AppHeader
                 title="Alerts"
+                subtitle={unread.length ? `${unread.length} unread` : 'You are all caught up'}
                 showBack
                 onBack={() => navigation.goBack()}
-            />
+                rightIcon={
+                    unread.length ? (
+                        <Pressable onPress={() => void markAllRead()} disabled={markingAll} hitSlop={8} style={styles.markAll} accessibilityRole="button">
+                            <Text style={styles.markAllText}>{markingAll ? 'Marking…' : 'Mark all read'}</Text>
+                        </Pressable>
+                    ) : null
+                }
+            >
+                <SegmentedControl
+                    value={filter}
+                    onChange={setFilter}
+                    options={[
+                        { value: 'all', label: 'All', count: items.length },
+                        { value: 'unread', label: 'Unread', count: unread.length },
+                    ]}
+                    style={styles.segmented}
+                />
+            </AppHeader>
 
-            <View style={styles.container}>
-                {/* Tabs: All / Unread / Read */}
-                <View style={styles.tabBar}>
-                    <Pressable
-                        style={[styles.tabButton, activeTab === 'all' && styles.tabButtonActive]}
-                        onPress={() => setActiveTab('all')}
-                    >
-                        <Text style={[styles.tabText, activeTab === 'all' && styles.tabTextActive]}>
-                            All
-                        </Text>
-                    </Pressable>
-
-                    <Pressable
-                        style={[styles.tabButton, activeTab === 'unread' && styles.tabButtonActive]}
-                        onPress={() => setActiveTab('unread')}
-                    >
-                        <Text style={[styles.tabText, activeTab === 'unread' && styles.tabTextActive]}>
-                            Unread
-                        </Text>
-                    </Pressable>
-
-                    <Pressable
-                        style={[styles.tabButton, activeTab === 'read' && styles.tabButtonActive]}
-                        onPress={() => setActiveTab('read')}
-                    >
-                        <Text style={[styles.tabText, activeTab === 'read' && styles.tabTextActive]}>
-                            Read
-                        </Text>
-                    </Pressable>
-                </View>
-
-                {/* Notifications List */}
-                {loading ? (
-                    <LoadingState message="Loading alerts..." />
-                ) : error ? (
-                    <ErrorState
-                        title="Unable to load alerts"
-                        description={error}
-                        buttonTitle="Retry"
-                        onRetry={() => void loadNotifications()}
-                    />
-                ) : filteredItems.length === 0 ? (
-                    <EmptyState
-                        title="No notifications"
-                        description="You're all caught up with utility updates."
-                        buttonTitle=""
-                    />
-                ) : (
-                    <FlatList
-                        data={filteredItems}
-                        keyExtractor={(item) => item.id}
-                        contentContainerStyle={styles.listContent}
-                        renderItem={({ item }) => (
-                            <NotificationCard
-                                notification={item}
-                                onPress={() => void handleNotificationPress(item)}
-                            />
-                        )}
-                        showsVerticalScrollIndicator={false}
-                    />
-                )}
-            </View>
-
-            <BottomNavigation
-                activeTab="More"
-                onTabPress={(tab) => {
-                    if (tab === 'Home') navigation.navigate('Home');
-                    else if (tab === 'Outages') navigation.navigate('Outages');
-                    else if (tab === 'Subscriptions') navigation.navigate('Subscriptions');
-                    else if (tab === 'Reports') navigation.navigate('Reports');
-                    else if (tab === 'More') navigation.navigate('Profile');
-                }}
-            />
-        </SafeAreaView>
+            {loading ? (
+                <LoadingState />
+            ) : error ? (
+                <ErrorState title="Couldn't load alerts" description={error} onRetry={() => void retry()} />
+            ) : (
+                <FlatList
+                    data={shown}
+                    keyExtractor={(item) => item.id}
+                    contentContainerStyle={shown.length ? styles.list : styles.emptyList}
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.primary} colors={[colors.primary]} />}
+                    renderItem={({ item }) => <NotificationCard notification={item} onPress={() => void open(item)} />}
+                    ListEmptyComponent={
+                        <EmptyState
+                            icon="bell"
+                            title={filter === 'unread' ? 'No unread alerts' : 'No alerts yet'}
+                            description="When an interruption is announced for an area you follow, the alert will appear here and on your phone."
+                            buttonTitle={filter === 'all' ? 'Manage my areas' : undefined}
+                            onButtonPress={() => navigation.navigate('Main', { screen: 'Subscriptions' })}
+                        />
+                    }
+                    showsVerticalScrollIndicator={false}
+                />
+            )}
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    safeArea: {
-        flex: 1,
-        backgroundColor: colors.headerBg,
-    },
-    container: {
+    screen: {
         flex: 1,
         backgroundColor: colors.background,
     },
-    tabBar: {
-        flexDirection: 'row',
-        backgroundColor: '#FFFFFF',
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
+    segmented: {
+        backgroundColor: 'rgba(255,255,255,0.16)',
     },
-    tabButton: {
-        flex: 1,
-        paddingVertical: 14,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderBottomWidth: 2.5,
-        borderBottomColor: 'transparent',
+    markAll: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 999,
+        backgroundColor: 'rgba(255,255,255,0.16)',
     },
-    tabButtonActive: {
-        borderBottomColor: colors.primary,
-    },
-    tabText: {
-        fontSize: 14,
-        fontWeight: '500',
-        color: colors.textSecondary,
-    },
-    tabTextActive: {
-        color: colors.primary,
+    markAllText: {
+        fontSize: 12,
         fontWeight: '700',
+        color: '#FFFFFF',
     },
-    listContent: {
+    list: {
         padding: 16,
-        paddingBottom: 24,
+        paddingBottom: 32,
+    },
+    emptyList: {
+        flexGrow: 1,
     },
 });

@@ -1,9 +1,11 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { colors } from '../theme/colors';
-import { Icon, IconName } from './Icon';
+import { Icon } from './Icon';
+import { Card, UtilityIcon } from './ui';
 import { NotificationItem } from '../api/client';
 import { formatRelativeTime } from '../utils/format';
+import { utilityKind } from '../utils/outage';
 
 interface NotificationCardProps {
     notification: NotificationItem;
@@ -11,117 +13,80 @@ interface NotificationCardProps {
 }
 
 export function NotificationCard({ notification, onPress }: NotificationCardProps) {
-    // Icon is derived from the real notification title only (generic fallback).
-    let iconName: IconName = 'bell';
-    let iconColor = colors.primary;
-    let iconBg = colors.alertBlueBg;
-
-    const titleLower = notification.title.toLowerCase();
-
-    if (titleLower.includes('restored')) {
-        iconName = 'check';
-        iconColor = colors.alertGreen;
-        iconBg = colors.alertGreenBg;
-    } else if (titleLower.includes('update')) {
-        iconName = 'water';
-        iconColor = colors.alertBlue;
-        iconBg = colors.alertBlueBg;
-    } else if (titleLower.includes('report')) {
-        iconName = 'clock';
-        iconColor = colors.alertYellow;
-        iconBg = colors.alertYellowBg;
-    } else if (titleLower.includes('outage') || titleLower.includes('alert')) {
-        iconName = 'lightning';
-        iconColor = colors.alertRed;
-        iconBg = colors.alertRedBg;
-    }
+    // The icon follows the utility of the outage this alert is about.
+    const kind = utilityKind(notification.outage?.utility);
+    const unread = !notification.isRead;
 
     return (
-        <Pressable
-            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-            onPress={onPress}
-        >
-            <View style={styles.leftCol}>
-                <View style={[styles.iconCircle, { backgroundColor: iconBg }]}>
-                    <Icon name={iconName} size={18} color={iconColor} />
-                </View>
-
-                <View style={styles.contentCol}>
-                    <Text style={styles.title}>{notification.title}</Text>
-                    <Text style={styles.message}>{notification.message}</Text>
-                    <Text style={styles.time}>{formatRelativeTime(notification.createdAt) ?? ''}</Text>
+        <Card onPress={onPress} style={[styles.card, unread && styles.unreadCard]} accessibilityLabel={`${unread ? 'Unread. ' : ''}${notification.title}`}>
+            <View style={styles.row}>
+                <UtilityIcon kind={kind} size={42} />
+                <View style={styles.body}>
+                    <View style={styles.titleRow}>
+                        <Text style={[styles.title, unread && styles.titleUnread]} numberOfLines={2}>{notification.title}</Text>
+                        {unread ? <View style={styles.dot} /> : null}
+                    </View>
+                    <Text style={styles.message} numberOfLines={3}>{notification.message}</Text>
+                    <View style={styles.metaRow}>
+                        <Icon name="clock" size={12} color={colors.textMuted} />
+                        <Text style={styles.time}>{formatRelativeTime(notification.createdAt) ?? ''}</Text>
+                    </View>
                 </View>
             </View>
-
-            <View style={styles.rightCol}>
-                {!notification.isRead && <View style={styles.unreadDot} />}
-                <Icon name="chevron-right" size={16} color={colors.textMuted} />
-            </View>
-        </Pressable>
+        </Card>
     );
 }
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: colors.surface,
-        borderRadius: 12,
-        padding: 14,
-        marginBottom: 10,
-        borderWidth: 1,
-        borderColor: colors.border,
+        marginBottom: 12,
+    },
+    unreadCard: {
+        borderColor: colors.primarySoft,
+        backgroundColor: '#FBFDFF',
+    },
+    row: {
         flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.03,
-        shadowRadius: 2,
-        elevation: 1,
+        gap: 14,
     },
-    cardPressed: {
-        backgroundColor: '#F8FAFC',
+    body: {
+        flex: 1,
+        gap: 4,
     },
-    leftCol: {
+    titleRow: {
         flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        flex: 1,
-    },
-    iconCircle: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    contentCol: {
-        flex: 1,
-        gap: 2,
+        alignItems: 'flex-start',
+        gap: 8,
     },
     title: {
-        fontSize: 14,
+        flex: 1,
+        fontSize: 15,
         fontWeight: '700',
         color: colors.textPrimary,
+    },
+    titleUnread: {
+        fontWeight: '800',
+    },
+    dot: {
+        width: 9,
+        height: 9,
+        borderRadius: 5,
+        backgroundColor: colors.unreadDot,
+        marginTop: 5,
     },
     message: {
         fontSize: 13,
         color: colors.textSecondary,
+        lineHeight: 19,
     },
-    time: {
-        fontSize: 11,
-        color: colors.textMuted,
-        marginTop: 2,
-    },
-    rightCol: {
+    metaRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
-        paddingLeft: 8,
+        gap: 5,
+        marginTop: 2,
     },
-    unreadDot: {
-        width: 7,
-        height: 7,
-        borderRadius: 3.5,
-        backgroundColor: colors.unreadDot,
+    time: {
+        fontSize: 12,
+        color: colors.textMuted,
     },
 });

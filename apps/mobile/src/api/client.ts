@@ -44,11 +44,17 @@ export type Outage = {
     status: string;
     startTime?: string | null;
     endTime?: string | null;
-    utility?: { name: string; code: string };
-    outageLocations?: Array<{ location?: { district?: string; sector?: string | null; cell?: string | null } }>;
+    utilityId?: string;
+    utility?: { id?: string; name: string; code: string };
+    outageLocations?: Array<{
+        locationId?: string;
+        location?: { id?: string; province?: string; district?: string; sector?: string | null; cell?: string | null };
+    }>;
     sourceName?: string | null;
     sourceUrl?: string | null;
     sourceType?: string;
+    createdAt?: string;
+    updatedAt?: string;
 };
 
 export type Location = {
@@ -119,7 +125,8 @@ export type DeviceRegistrationResult = {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const token = await AsyncStorage.getItem(TOKEN_KEY);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    // Generous timeout for slower mobile connections outside Kigali.
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
     try {
         const response = await fetch(`${API_URL}${path}`, {
@@ -153,8 +160,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         return (await response.json()) as T;
     } catch (err) {
         clearTimeout(timeout);
-        throw err;
+        if (err instanceof ApiError) throw err;
+        // Network failures and timeouts get a message people can act on.
+        throw new ApiError(0, 'Could not reach the Rwanda Utility Alerts server. Check your internet connection and try again.');
     }
+}
+
+/** A readable message for any error thrown by the API client. */
+export function errorMessage(err: unknown, fallback: string): string {
+    return err instanceof ApiError && err.message ? err.message : fallback;
 }
 
 export const api = {
@@ -192,6 +206,27 @@ export const api = {
             await AsyncStorage.removeItem(USER_KEY);
             return null;
         }
+    },
+
+    async updateProfile(changes: {
+        firstName?: string;
+        lastName?: string;
+        email?: string | null;
+        notificationsEnabled?: boolean;
+    }) {
+        const user = await request<ApiUser>('/users/me', {
+            method: 'PATCH',
+            body: JSON.stringify(changes),
+        });
+        await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+        return user;
+    },
+
+    async changePassword(currentPassword: string, newPassword: string) {
+        return request<{ message: string }>('/users/me/password', {
+            method: 'PATCH',
+            body: JSON.stringify({ currentPassword, newPassword }),
+        });
     },
 
     async logout() {
@@ -320,14 +355,3 @@ export const api = {
 };
 
 export { DEVICE_TOKEN_KEY };
-
-export function extractOutageAreas(outage: Outage): string[] {
-    const areas = (outage.outageLocations ?? [])
-        .map(({ location }) => {
-            const parts = [location?.district, location?.sector, location?.cell]
-                .filter((part): part is string => Boolean(part));
-            return parts.join(' - ');
-        })
-        .filter(Boolean);
-    return Array.from(new Set(areas));
-}

@@ -1,317 +1,159 @@
 import React, { useState } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    TextInput,
-    Pressable,
-    SafeAreaView,
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-} from 'react-native';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/types';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { RootScreenProps } from '../navigation/types';
 import { colors } from '../theme/colors';
-import { LogoEmblem } from '../components/LogoEmblem';
-import { Icon } from '../components/Icon';
+import { AuthLayout } from '../components/AuthLayout';
+import { Button, InfoNote, TextField } from '../components/ui';
 import { useAuthStore } from '../auth/store';
+import { errorMessage } from '../api/client';
+import { isRwandanMobile } from '../utils/format';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'SignUp'>;
+type Errors = Partial<Record<'firstName' | 'lastName' | 'phone' | 'email' | 'password' | 'confirm', string>>;
 
-export function SignUpScreen({ navigation }: Props) {
+function validate(values: { firstName: string; lastName: string; phone: string; email: string; password: string; confirm: string }): Errors {
+    const errors: Errors = {};
+    if (values.firstName.trim().length < 2) errors.firstName = 'Enter your first name';
+    if (values.lastName.trim().length < 2) errors.lastName = 'Enter your last name';
+    if (!isRwandanMobile(values.phone)) errors.phone = 'Use a Rwandan mobile number (072, 073, 078 or 079)';
+    if (values.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) errors.email = 'Enter a valid email address';
+    if (values.password.length < 6) errors.password = 'Use at least 6 characters';
+    if (values.confirm !== values.password) errors.confirm = 'Passwords do not match';
+    return errors;
+}
+
+export function SignUpScreen({ navigation }: RootScreenProps<'SignUp'>) {
     const signUp = useAuthStore((state) => state.signUp);
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [showPassword, setShowPassword] = useState(false);
+    const [confirm, setConfirm] = useState('');
+    const [errors, setErrors] = useState<Errors>({});
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     async function handleSignUp() {
-        if (!phone.trim() || !password.trim()) {
-            setError('Please enter a phone number and password.');
-            return;
-        }
-
         setError(null);
+        const found = validate({ firstName, lastName, phone, email, password, confirm });
+        setErrors(found);
+        if (Object.keys(found).length) return;
+
         setBusy(true);
         try {
-            await signUp(
-                phone.trim(),
-                password,
-                firstName.trim() || 'User',
-                lastName.trim() || 'Account',
-                email.trim() || undefined
-            );
-        } catch {
-            setError('Unable to create account. Please try again.');
+            await signUp(phone.trim(), password, firstName.trim(), lastName.trim(), email.trim() || undefined);
+        } catch (err) {
+            setError(errorMessage(err, 'Unable to create your account. Please try again.'));
         } finally {
             setBusy(false);
         }
     }
 
     return (
-        <SafeAreaView style={styles.container}>
-            <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                style={styles.keyboardView}
-            >
-                <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-                    {/* Brand Header */}
-                    <View style={styles.brandHeader}>
-                        <LogoEmblem size={48} />
-                        <Text style={styles.brandTitle}>Rwanda Utility Alerts</Text>
-                    </View>
-
-                    {/* Title */}
-                    <View style={styles.titleSection}>
-                        <Text style={styles.title}>Create Account</Text>
-                        <Text style={styles.subtitle}>
-                            Sign up to receive instantaneous water & electricity alerts.
-                        </Text>
-                    </View>
-
-                    {/* Form Fields */}
-                    <View style={styles.formSection}>
-                        {/* Name row */}
-                        <View style={styles.nameRow}>
-                            <View style={[styles.inputGroup, { flex: 1 }]}>
-                                <Text style={styles.inputLabel}>First Name</Text>
-                                <View style={styles.inputWrapper}>
-                                    <TextInput
-                                        style={styles.inputField}
-                                        placeholder="First name"
-                                        placeholderTextColor={colors.textMuted}
-                                        value={firstName}
-                                        onChangeText={setFirstName}
-                                    />
-                                </View>
-                            </View>
-                            <View style={[styles.inputGroup, { flex: 1 }]}>
-                                <Text style={styles.inputLabel}>Last Name</Text>
-                                <View style={styles.inputWrapper}>
-                                    <TextInput
-                                        style={styles.inputField}
-                                        placeholder="Last name"
-                                        placeholderTextColor={colors.textMuted}
-                                        value={lastName}
-                                        onChangeText={setLastName}
-                                    />
-                                </View>
-                            </View>
-                        </View>
-
-                        {/* Phone */}
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>Phone number</Text>
-                            <View style={styles.inputWrapper}>
-                                <View style={styles.inputIcon}>
-                                    <Icon name="phone" size={18} color={colors.textSecondary} />
-                                </View>
-                                <TextInput
-                                    style={styles.inputField}
-                                    placeholder="e.g. 0780000000"
-                                    placeholderTextColor={colors.textMuted}
-                                    keyboardType="phone-pad"
-                                    autoCapitalize="none"
-                                    value={phone}
-                                    onChangeText={setPhone}
-                                />
-                            </View>
-                        </View>
-
-                        {/* Email */}
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>Email (Optional)</Text>
-                            <View style={styles.inputWrapper}>
-                                <TextInput
-                                    style={styles.inputField}
-                                    placeholder="name@example.com"
-                                    placeholderTextColor={colors.textMuted}
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
-                                    value={email}
-                                    onChangeText={setEmail}
-                                />
-                            </View>
-                        </View>
-
-                        {/* Password */}
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.inputLabel}>Password</Text>
-                            <View style={styles.inputWrapper}>
-                                <View style={styles.inputIcon}>
-                                    <Icon name="lock" size={18} color={colors.textSecondary} />
-                                </View>
-                                <TextInput
-                                    style={styles.inputField}
-                                    placeholder="Choose password"
-                                    placeholderTextColor={colors.textMuted}
-                                    secureTextEntry={!showPassword}
-                                    value={password}
-                                    onChangeText={setPassword}
-                                />
-                                <Pressable
-                                    onPress={() => setShowPassword(!showPassword)}
-                                    style={styles.eyeBtn}
-                                    hitSlop={10}
-                                >
-                                    <Icon
-                                        name={showPassword ? 'eye-off' : 'eye'}
-                                        size={18}
-                                        color={colors.textSecondary}
-                                    />
-                                </Pressable>
-                            </View>
-                        </View>
-
-                        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-                        {/* Submit Button */}
-                        <Pressable
-                            style={({ pressed }) => [styles.submitBtn, pressed && styles.btnPressed]}
-                            onPress={handleSignUp}
-                            disabled={busy}
-                        >
-                            {busy ? (
-                                <ActivityIndicator color="#FFFFFF" />
-                            ) : (
-                                <Text style={styles.submitBtnText}>Create Account</Text>
-                            )}
-                        </Pressable>
-                    </View>
-
-                    {/* Footer */}
-                    <View style={styles.footerRow}>
-                        <Text style={styles.footerPrompt}>Already have an account? </Text>
-                        <Pressable onPress={() => navigation.navigate('Login')} hitSlop={8}>
-                            <Text style={styles.footerLink}>Sign In</Text>
-                        </Pressable>
-                    </View>
-                </ScrollView>
-            </KeyboardAvoidingView>
-        </SafeAreaView>
+        <AuthLayout
+            title="Create your account"
+            subtitle="Get notified about electricity and water interruptions where you live and work."
+            onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined}
+            footer={
+                <View style={styles.footerRow}>
+                    <Text style={styles.footerText}>Already have an account? </Text>
+                    <Pressable onPress={() => navigation.replace('Login')} hitSlop={8}>
+                        <Text style={styles.footerLink}>Sign in</Text>
+                    </Pressable>
+                </View>
+            }
+        >
+            <View style={styles.nameRow}>
+                <TextField
+                    label="First name"
+                    placeholder="e.g. Aline"
+                    autoComplete="given-name"
+                    value={firstName}
+                    onChangeText={setFirstName}
+                    error={errors.firstName}
+                    style={styles.nameField}
+                />
+                <TextField
+                    label="Last name"
+                    placeholder="e.g. Uwase"
+                    autoComplete="family-name"
+                    value={lastName}
+                    onChangeText={setLastName}
+                    error={errors.lastName}
+                    style={styles.nameField}
+                />
+            </View>
+            <TextField
+                label="Phone number"
+                icon="phone"
+                placeholder="078 123 4567"
+                keyboardType="phone-pad"
+                autoComplete="tel"
+                value={phone}
+                onChangeText={setPhone}
+                error={errors.phone}
+                hint="You will use this number to sign in."
+                maxLength={16}
+            />
+            <TextField
+                label="Email (optional)"
+                icon="mail"
+                placeholder="name@example.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                value={email}
+                onChangeText={setEmail}
+                error={errors.email}
+            />
+            <TextField
+                label="Password"
+                icon="lock"
+                placeholder="At least 6 characters"
+                secure
+                autoComplete="new-password"
+                value={password}
+                onChangeText={setPassword}
+                error={errors.password}
+            />
+            <TextField
+                label="Confirm password"
+                icon="lock"
+                placeholder="Repeat your password"
+                secure
+                autoComplete="new-password"
+                value={confirm}
+                onChangeText={setConfirm}
+                error={errors.confirm}
+                onSubmitEditing={() => void handleSignUp()}
+                returnKeyType="go"
+            />
+            {error ? <InfoNote tone="warning" icon="alert">{error}</InfoNote> : null}
+            <Button title="Create account" onPress={() => void handleSignUp()} loading={busy} />
+        </AuthLayout>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#FFFFFF',
-    },
-    keyboardView: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingHorizontal: 24,
-        paddingTop: 32,
-        paddingBottom: 24,
-        flexGrow: 1,
-    },
-    brandHeader: {
-        alignItems: 'center',
-        marginBottom: 24,
-        gap: 8,
-    },
-    brandTitle: {
-        fontSize: 17,
-        fontWeight: '700',
-        color: colors.textPrimary,
-    },
-    titleSection: {
-        marginBottom: 24,
-    },
-    title: {
-        fontSize: 24,
-        fontWeight: '800',
-        color: colors.textPrimary,
-        marginBottom: 6,
-    },
-    subtitle: {
-        fontSize: 14,
-        color: colors.textSecondary,
-        lineHeight: 20,
-    },
-    formSection: {
-        gap: 16,
-        marginBottom: 24,
-    },
     nameRow: {
         flexDirection: 'row',
         gap: 12,
     },
-    inputGroup: {
-        gap: 6,
-    },
-    inputLabel: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: colors.textPrimary,
-    },
-    inputWrapper: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: colors.borderDark,
-        borderRadius: 8,
-        backgroundColor: colors.surface,
-        paddingHorizontal: 12,
-        height: 48,
-    },
-    inputIcon: {
-        marginRight: 8,
-    },
-    inputField: {
+    nameField: {
         flex: 1,
-        height: '100%',
-        fontSize: 15,
-        color: colors.textPrimary,
-    },
-    eyeBtn: {
-        padding: 6,
-    },
-    errorText: {
-        color: colors.alertRed,
-        fontSize: 13,
-    },
-    submitBtn: {
-        backgroundColor: colors.primary,
-        borderRadius: 8,
-        height: 48,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginTop: 6,
-        shadowColor: colors.primary,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    submitBtnText: {
-        color: '#FFFFFF',
-        fontWeight: '700',
-        fontSize: 16,
-    },
-    btnPressed: {
-        opacity: 0.9,
     },
     footerRow: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'center',
-        alignItems: 'center',
-        marginTop: 16,
     },
-    footerPrompt: {
+    footerText: {
         fontSize: 14,
         color: colors.textSecondary,
     },
     footerLink: {
         fontSize: 14,
-        fontWeight: '700',
+        fontWeight: '800',
         color: colors.primary,
     },
 });

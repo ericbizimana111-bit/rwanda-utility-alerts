@@ -6,6 +6,7 @@ from src.location_resolver import LocationResolver
 from src.models import OutageData
 from src.parsers.wasac_parser import WasacParser
 from src.storage.duplicate_detector import DuplicateDetector
+from src.timezone import KIGALI_TZ
 
 
 WASAC_HTML = """
@@ -48,7 +49,7 @@ def test_wasac_parser_keeps_genuine_interruption_and_excludes_billing():
         "Gasabo": "Remera and Kimironko",
         "Kicukiro": "Niboye and Kanombe",
     }
-    assert item["start_time"] == datetime(2026, 9, 12)
+    assert item["start_time"] == datetime(2026, 9, 12, tzinfo=KIGALI_TZ)
     assert item["end_time"] is None
     assert item["status"] == "planned"
     assert len(item["external_id"]) == 64
@@ -59,9 +60,9 @@ def test_wasac_parser_preserves_historical_interruption_without_inventing_end_ti
 
     assert len(items) == 1
     assert items[0]["status"] == "completed"
-    assert items[0]["start_time"] == datetime(2025, 10, 26)
+    assert items[0]["start_time"] == datetime(2025, 10, 26, tzinfo=KIGALI_TZ)
     assert items[0]["end_time"] is None
-    assert items[0]["districts"] == ["Kigali City"]
+    assert items[0]["districts"] == ["Gasabo", "Kicukiro", "Nyarugenge"]
 
 
 def test_wasac_external_id_is_deterministic():
@@ -72,7 +73,7 @@ def test_wasac_external_id_is_deterministic():
 
 
 @pytest.mark.asyncio
-async def test_unresolved_wasac_area_does_not_fallback(monkeypatch):
+async def test_unresolved_area_without_district_record_returns_nothing(monkeypatch):
     resolver = LocationResolver()
 
     async def district_locations(_district):
@@ -99,3 +100,25 @@ def test_duplicate_detector_is_idempotent_for_same_external_id():
 
     assert detector.is_duplicate(outage) is False
     assert detector.is_duplicate(outage) is True
+
+
+LIVE_FORMAT_HTML = """
+<a class="announcement" data-category="Service Update" href="/en/public-information/announcements/d/planned-water-supply-interruption-in-parts-of-musanze-and-burera-districts-on-23-september-2026">
+  <h3>Planned Water Supply Interruption in Parts of Musanze and Burera Districts on 23 September 2026</h3>
+  <p>22/09/2026</p>
+  <p><strong>Category:</strong> Service Update</p>
+  <p>WASAC Group Ltd informs customers in parts of Musanze and Burera Districts that water supply will be temporarily interrupted on Wednesday, 23 September 2026, due to planned works to connect new pipelines from the Mutobo Water Treatment Plant to the existing water supply network.</p>
+</a>
+"""
+
+
+def test_wasac_parser_handles_current_site_format():
+    items = WasacParser.parse(LIVE_FORMAT_HTML, reference_date=date(2026, 9, 22))
+
+    assert len(items) == 1
+    item = items[0]
+    assert item["status"] == "planned"
+    assert item["districts"] == ["Burera", "Musanze"]
+    assert item["areas_by_district"] == {}
+    assert item["start_time"] == datetime(2026, 9, 23, tzinfo=KIGALI_TZ)
+    assert item["end_time"] is None
