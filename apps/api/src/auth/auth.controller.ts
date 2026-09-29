@@ -12,16 +12,20 @@ import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('auth')
 export class AuthController {
     constructor(private readonly authService: AuthService) { }
 
+    // Stricter limits on credential endpoints to slow down brute forcing.
+    @Throttle({ default: { limit: 10, ttl: 60_000 } })
     @Post('register')
     async register(@Body() registerDto: RegisterDto) {
         return this.authService.register(registerDto);
     }
 
+    @Throttle({ default: { limit: 10, ttl: 60_000 } })
     @Post('login')
     async login(@Body() loginDto: LoginDto) {
         const user = await this.authService.validateUser(
