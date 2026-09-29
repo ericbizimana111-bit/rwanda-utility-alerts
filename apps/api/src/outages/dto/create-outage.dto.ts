@@ -1,5 +1,6 @@
 import {
     IsDateString,
+    IsIn,
     IsOptional,
     IsString,
     IsUUID,
@@ -45,4 +46,8 @@ export class CreateOutageDto {
 
     @IsString()
     externalId: string;
+}
+export class UpdateOutageStatusDto {
+    @IsIn(['planned', 'active', 'completed', 'cancelled'])
+    status: string;
 }

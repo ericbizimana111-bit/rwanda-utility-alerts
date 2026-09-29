@@ -10,6 +10,7 @@ import { User } from '../users/user.entity';
 import { Outage } from '../outages/outage.entity';
 import { Subscription } from '../subscriptions/subscription.entity';
 import { Device } from '../devices/device.entity';
+import { Location } from '../locations/location.entity';
 import { NOTIFICATION_QUEUE_NAME } from './notification-queue.constants';
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationProcessor } from './notification.processor';
@@ -24,6 +25,7 @@ import { PushNotificationService } from './push-notification.service';
       Outage,
       Subscription,
       Device,
+      Location,
     ]),
   ],
   controllers: [NotificationsController],

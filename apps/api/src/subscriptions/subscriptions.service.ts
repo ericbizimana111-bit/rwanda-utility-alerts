@@ -65,38 +65,46 @@ export class SubscriptionsService {
                 },
             });
 
-        if (existingSubscription) {
+        if (existingSubscription?.isActive) {
             throw new ConflictException(
                 'You are already subscribed to this utility and location',
             );
         }
 
-        const subscription =
-            this.subscriptionsRepository.create({
+        // Removing a subscription only deactivates it, so re-subscribing
+        // reactivates the same row instead of creating a duplicate.
+        const subscription = existingSubscription
+            ? Object.assign(existingSubscription, { isActive: true })
+            : this.subscriptionsRepository.create({
                 userId,
                 locationId,
                 utilityId,
                 isActive: true,
             });
 
-        return this.subscriptionsRepository.save(subscription);
+        const saved = await this.subscriptionsRepository.save(subscription);
+
+        return this.subscriptionsRepository.findOne({
+            where: { id: saved.id },
+            relations: { location: true, utility: true },
+        });
     }
 
     async findUserSubscriptions(userId: string) {
-    return this.subscriptionsRepository.find({
-        where: {
-            userId,
-            isActive: true,
-        },
-        relations: {
-            location: true,
-            utility: true,
-        },
-        order: {
-            createdAt: 'DESC',
-        },
-    });
-}
+        return this.subscriptionsRepository.find({
+            where: {
+                userId,
+                isActive: true,
+            },
+            relations: {
+                location: true,
+                utility: true,
+            },
+            order: {
+                createdAt: 'DESC',
+            },
+        });
+    }
 
     async remove(
         userId: string,
@@ -107,6 +115,7 @@ export class SubscriptionsService {
                 where: {
                     id: subscriptionId,
                     userId,
+                    isActive: true,
                 },
             });
 

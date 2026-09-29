@@ -5,7 +5,7 @@ import {
     NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 
 import { Outage } from './outage.entity';
 import { OutageLocation } from './outage-location.entity';
@@ -184,6 +184,17 @@ export class OutagesService {
         return outage;
     }
 
+    async updateStatus(id: string, status: string) {
+        const outage = await this.outagesRepository.findOne({ where: { id } });
+        if (!outage) {
+            throw new NotFoundException('Outage not found');
+        }
+
+        outage.status = this.normalizeStatus(status);
+        await this.outagesRepository.save(outage);
+        return this.findById(id);
+    }
+
     async findByUtility(utilityId: string) {
         return this.outagesRepository.find({
             where: { utilityId },
@@ -213,6 +224,9 @@ export class OutagesService {
 
     async findActive() {
         const now = new Date();
+        // An outage without a published end time is treated as active for at
+        // most 24 hours so stale announcements never linger as "active".
+        const openEndedCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
         return this.outagesRepository
             .createQueryBuilder('outage')
@@ -220,8 +234,16 @@ export class OutagesService {
             .leftJoinAndSelect('outage.location', 'location')
             .leftJoinAndSelect('outage.outageLocations', 'outageLocations')
             .leftJoinAndSelect('outageLocations.location', 'affectedLocation')
-            .where('outage.startTime <= :now', { now })
-            .andWhere('outage.endTime >= :now OR outage.endTime IS NULL', { now })
+            .where('outage.status IN (:...statuses)', { statuses: ['planned', 'active'] })
+            .andWhere('outage.startTime <= :now', { now })
+            .andWhere(
+                new Brackets((qb) => {
+                    qb.where('outage.endTime >= :now', { now })
+                        .orWhere('outage.endTime IS NULL AND outage.startTime >= :openEndedCutoff', {
+                            openEndedCutoff,
+                        });
+                }),
+            )
             .orderBy('outage.startTime', 'ASC')
             .getMany();
     }

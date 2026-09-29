@@ -1,12 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { In, QueryFailedError, Repository } from 'typeorm';
 
 import { Notification } from './notification.entity';
 import { User } from '../users/user.entity';
 import { Outage } from '../outages/outage.entity';
 import { Subscription } from '../subscriptions/subscription.entity';
 import { Device } from '../devices/device.entity';
+import { Location } from '../locations/location.entity';
+import { formatKigaliRange } from '../common/kigali-time';
 
 @Injectable()
 export class NotificationsService {
@@ -25,6 +27,9 @@ export class NotificationsService {
 
         @InjectRepository(Device)
         private readonly devicesRepository: Repository<Device>,
+
+        @InjectRepository(Location)
+        private readonly locationsRepository: Repository<Location>,
     ) { }
 
     async createNotification(
@@ -94,39 +99,64 @@ export class NotificationsService {
     }
 
     private buildMessage(outage: Outage): string {
-        const locationTexts = Array.from(
-            new Set(
-                (outage.outageLocations ?? [])
-                    .map(({ location }) =>
-                        [
-                            location?.district,
-                            location?.sector,
-                            location?.cell,
-                            location?.village,
-                        ]
-                            .filter(Boolean)
-                            .join(', '),
-                    )
-                    .filter(Boolean),
-            ),
-        );
+        // Group affected areas by district: "Kicukiro: Niboye, Kagarama; Gasabo: Remera".
+        const areasByDistrict = new Map<string, Set<string>>();
+        for (const { location } of outage.outageLocations ?? []) {
+            if (!location?.district) continue;
+            const areas = areasByDistrict.get(location.district) ?? new Set<string>();
+            const detail = [location.sector, location.cell, location.village].filter(Boolean).join(', ');
+            if (detail) areas.add(detail);
+            areasByDistrict.set(location.district, areas);
+        }
 
-        const locationText = locationTexts.length > 0
-            ? locationTexts.join('; ')
-            : 'the affected locations';
+        const locationText = areasByDistrict.size > 0
+            ? Array.from(areasByDistrict.entries())
+                .map(([district, areas]) =>
+                    areas.size ? `${district}: ${Array.from(areas).join(', ')}` : district)
+                .join('; ')
+            : 'the affected areas';
 
-        const start = outage.startTime
-            ? outage.startTime.toLocaleString('en-RW')
-            : 'an unspecified start time';
-        const end = outage.endTime
-            ? ` until ${outage.endTime.toLocaleString('en-RW')}`
-            : '';
-        const reason = outage.description ? ` Reason: ${outage.description}` : '';
-        const source = outage.sourceName
-            ? ` Source: ${outage.sourceName}${outage.sourceUrl ? ` (${outage.sourceUrl})` : ''}.`
-            : '';
+        const when = formatKigaliRange(outage.startTime, outage.endTime) ?? 'Time to be announced';
+        const reason = outage.description ? ` ${outage.description.trim().replace(/\.?$/, '.')}` : '';
+        const source = outage.sourceName ? ` Source: ${outage.sourceName}.` : '';
 
-        return `${outage.utility.name} outage in ${locationText}. ${outage.title}.${reason} Expected from ${start}${end}.${source}`;
+        return `${outage.utility.name} interruption in ${locationText}. ${when}.${reason}${source}`;
+    }
+
+    /**
+     * Location IDs whose subscribers are affected by an outage, following the
+     * administrative hierarchy: a district-wide outage reaches every
+     * subscriber in that district, and a sector outage also reaches
+     * subscribers who follow the whole district.
+     */
+    private async expandAffectedLocationIds(outage: Outage): Promise<string[]> {
+        const affected = (outage.outageLocations ?? []).filter((item) => item.locationId);
+        const ids = new Set(affected.map((item) => item.locationId));
+        const affectedLocations = affected
+            .map((item) => item.location)
+            .filter((location): location is Location => Boolean(location?.district));
+
+        const districts = Array.from(new Set(affectedLocations.map((location) => location.district)));
+        if (!districts.length || !this.locationsRepository) return Array.from(ids);
+
+        const candidates = await this.locationsRepository.find({
+            where: { district: In(districts) },
+        });
+
+        const same = (a?: string | null, b?: string | null) =>
+            (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase();
+
+        for (const candidate of candidates) {
+            const covered = affectedLocations.some((area) => {
+                if (!same(area.district, candidate.district)) return false;
+                if (!area.sector || !candidate.sector) return true;
+                if (!same(area.sector, candidate.sector)) return false;
+                return !area.cell || !candidate.cell || same(area.cell, candidate.cell);
+            });
+            if (covered) ids.add(candidate.id);
+        }
+
+        return Array.from(ids);
     }
 
     async getUserNotifications(userId: string) {
@@ -190,13 +220,7 @@ export class NotificationsService {
             );
         }
 
-        const locationIds = Array.from(
-            new Set(
-                (outage.outageLocations ?? [])
-                    .map((outageLocation) => outageLocation.locationId)
-                    .filter(Boolean),
-            ),
-        );
+        const locationIds = await this.expandAffectedLocationIds(outage);
 
         if (!locationIds.length) {
             return {

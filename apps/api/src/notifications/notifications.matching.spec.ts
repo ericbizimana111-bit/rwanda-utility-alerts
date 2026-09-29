@@ -48,6 +48,7 @@ const outage = {
 function createService(options: {
     users: any[];
     subscriptions: any[];
+    locations?: any[];
 }) {
     const notificationStore = new InMemoryNotificationStore();
     const usersById = new Map(options.users.map((user) => [user.id, user]));
@@ -92,6 +93,12 @@ function createService(options: {
         { findOne: async () => outage } as any,
         subscriptionsRepository as any,
         { find: jest.fn() } as any,
+        {
+            find: async ({ where }: any) => {
+                const districts: string[] = where.district._value ?? where.district.value ?? [];
+                return (options.locations ?? []).filter((location) => districts.includes(location.district));
+            },
+        } as any,
     );
 
     return { service, notificationStore };
@@ -119,7 +126,7 @@ describe('NotificationsService outage matching', () => {
         expect(notificationStore.notifications).toHaveLength(1);
         expect(notificationStore.notifications[0].userId).toBe('matching-user');
         expect(notificationStore.notifications[0].outageId).toBe('outage-1');
-        expect(notificationStore.notifications[0].message).toContain('Gasabo, Remera');
+        expect(notificationStore.notifications[0].message).toContain('Gasabo: Remera');
         expect(notificationStore.notifications[0].message).toContain('Rwanda Energy Group');
     });
 
@@ -194,5 +201,59 @@ describe('NotificationsService outage matching', () => {
         expect(result.notificationsCreated).toBe(0);
         expect(result.matchingSubscriptions).toBe(0);
         expect(notificationStore.notifications).toHaveLength(0);
+    });
+
+    describe('administrative hierarchy', () => {
+        const locations = [
+            { id: 'location-gasabo', district: 'Gasabo', sector: 'Remera', cell: null },
+            { id: 'gasabo-district', district: 'Gasabo', sector: null, cell: null },
+            { id: 'gasabo-kacyiru', district: 'Gasabo', sector: 'Kacyiru', cell: null },
+            { id: 'location-kicukiro', district: 'Kicukiro', sector: 'Niboye', cell: null },
+        ];
+
+        it('notifies a subscriber following the whole district of an affected sector', async () => {
+            const { service, notificationStore } = createService({
+                users: [user('district-user')],
+                subscriptions: [subscription('district-user', 'gasabo-district')],
+                locations,
+            });
+
+            const result = await service.createNotificationsForOutage('outage-1');
+
+            expect(result.notificationsCreated).toBe(1);
+            expect(notificationStore.notifications[0].userId).toBe('district-user');
+        });
+
+        it('does not notify a subscriber of a different sector in the same district', async () => {
+            const { service, notificationStore } = createService({
+                users: [user('kacyiru-user')],
+                subscriptions: [subscription('kacyiru-user', 'gasabo-kacyiru')],
+                locations,
+            });
+
+            const result = await service.createNotificationsForOutage('outage-1');
+
+            expect(result.notificationsCreated).toBe(0);
+            expect(notificationStore.notifications).toHaveLength(0);
+        });
+
+        it('notifies every sector subscriber when the outage covers a whole district', async () => {
+            const { service, notificationStore } = createService({
+                users: [user('kacyiru-user')],
+                subscriptions: [subscription('kacyiru-user', 'gasabo-kacyiru')],
+                locations,
+            });
+            (service as any).outagesRepository.findOne = async () => ({
+                ...outage,
+                outageLocations: [
+                    { locationId: 'gasabo-district', location: { district: 'Gasabo', sector: null, cell: null, village: null } },
+                ],
+            });
+
+            const result = await service.createNotificationsForOutage('outage-1');
+
+            expect(result.notificationsCreated).toBe(1);
+            expect(notificationStore.notifications[0].message).toContain('Gasabo');
+        });
     });
 });
