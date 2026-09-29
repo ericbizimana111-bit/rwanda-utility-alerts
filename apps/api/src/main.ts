@@ -1,3 +1,8 @@
+// Rwanda observes Central Africa Time (UTC+2, no daylight saving). Outage
+// timestamps are stored as wall-clock time, so pin the process time zone to
+// keep reads and writes consistent regardless of where the API is hosted.
+process.env.TZ = process.env.TZ || 'Africa/Kigali';
+
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
@@ -17,6 +22,7 @@ async function bootstrap() {
   });
 
   app.use(helmet());
+  app.enableShutdownHooks();
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -29,4 +35,4 @@ async function bootstrap() {
   await app.listen(process.env.PORT ?? 3000);
 }
 
-bootstrap();
+void bootstrap();

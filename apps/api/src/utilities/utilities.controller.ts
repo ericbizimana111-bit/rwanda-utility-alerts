@@ -4,7 +4,12 @@ import {
     Get,
     Param,
     Post,
+    UseGuards,
 } from '@nestjs/common';
+
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 import { UtilitiesService } from './utilities.service';
 import { CreateUtilityDto } from './dto/create-utility.dto';
@@ -15,6 +20,8 @@ export class UtilitiesController {
         private readonly utilitiesService: UtilitiesService,
     ) { }
 
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles('ADMIN', 'SUPER_ADMIN')
     @Post()
     async create(
         @Body() createUtilityDto: CreateUtilityDto,

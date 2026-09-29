@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import { AppController } from './app.controller';
@@ -27,8 +28,9 @@ import { AdminModule } from './admin/admin.module';
     ThrottlerModule.forRoot([
       {
         name: 'default',
-        ttl: 60,
-        limit: 20,
+        // ttl is in milliseconds: 120 requests per minute per client.
+        ttl: 60_000,
+        limit: 120,
       },
     ]),
 
@@ -52,7 +54,9 @@ import { AdminModule } from './admin/admin.module';
       password: process.env.DATABASE_PASSWORD || 'utility_password',
       database: process.env.DATABASE_NAME || 'utility_alerts',
       autoLoadEntities: true,
-      synchronize: true,
+      // Schema auto-sync is convenient in development; set DB_SYNCHRONIZE=false
+      // in production once migrations are in place.
+      synchronize: process.env.DB_SYNCHRONIZE !== 'false',
     }),
 
     UsersModule,
@@ -69,5 +73,6 @@ import { AdminModule } from './admin/admin.module';
   ],
 
   controllers: [AppController],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule { }
