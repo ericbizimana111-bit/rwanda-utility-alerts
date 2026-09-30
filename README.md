@@ -67,10 +67,16 @@ cd apps/api && npm run create-admin -- 0788123456 "a-strong-password" Aline Uwas
 
 ### Connecting the app to the API
 
-| Where the app runs | `EXPO_PUBLIC_API_URL` in `apps/mobile/.env` |
+The app picks the API address automatically (`apps/mobile/src/api/baseUrl.ts`):
+
+| Where the app runs | API address used |
 | --- | --- |
+| Web browser (`npx expo start`, then `w`) | `http://<page host>:3000`, e.g. `http://localhost:3000` |
 | Android emulator | `http://10.0.2.2:3000` |
-| Physical phone (same Wi-Fi as the PC) | `http://<PC Wi-Fi IP>:3000`, e.g. `http://10.12.73.126:3000` (check with `ipconfig`; it can change) |
+| Physical phone (same Wi-Fi as the PC) | the PC running Metro, e.g. `http://10.12.73.126:3000` |
+
+Set `EXPO_PUBLIC_API_URL` in `apps/mobile/.env` only for a different server (e.g. a deployed API).
+Run only one API on port 3000: either `npm run start:dev` or the Docker `api` service, not both.
 
 "Could not reach the Rwanda Utility Alerts server" means the app cannot open that URL: check that
 `http://<that address>:3000/health` loads in the phone's browser.

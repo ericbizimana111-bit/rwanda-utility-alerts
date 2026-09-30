@@ -1,17 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+import * as Device from 'expo-device';
+import { resolveApiUrl } from './baseUrl';
 
-const getBaseUrl = () => {
-    if (process.env.EXPO_PUBLIC_API_URL) {
-        return process.env.EXPO_PUBLIC_API_URL;
-    }
-    if (Platform.OS === 'android') {
-        return 'http://10.0.2.2:3000';
-    }
-    return 'http://localhost:3000';
-};
-
-const API_URL = getBaseUrl();
+const API_URL = resolveApiUrl({
+    platform: Platform.OS,
+    configured: process.env.EXPO_PUBLIC_API_URL,
+    pageHost: Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.hostname : undefined,
+    isDevice: Device.isDevice,
+    metroHost: Constants.expoConfig?.hostUri?.split(':')[0],
+});
 const TOKEN_KEY = 'rwanda-utility-alerts.access-token';
 const DEVICE_KEY = 'rwanda-utility-alerts.device-id';
 const DEVICE_TOKEN_KEY = 'rwanda-utility-alerts.device-token';
@@ -162,7 +161,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         clearTimeout(timeout);
         if (err instanceof ApiError) throw err;
         // Network failures and timeouts get a message people can act on.
-        throw new ApiError(0, 'Could not reach the Rwanda Utility Alerts server. Check your internet connection and try again.');
+        throw new ApiError(0, `Could not reach the Rwanda Utility Alerts server at ${API_URL}. Check your internet connection and that the server is running, then try again.`);
     }
 }
 
