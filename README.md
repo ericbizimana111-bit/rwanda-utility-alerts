@@ -42,9 +42,42 @@ REG / WASAC websites ──► data-collector ──► API ──► PostgreSQL
 - **Status from the published times.** "In progress" / "Scheduled" / "Ended" is computed from the start and end times, and an
   outage without a published end time stops being shown as in progress after 24 hours.
 
-## Running locally
+## Running the backend
 
-Requirements: Node.js 22, Python 3.13, PostgreSQL and Redis (the included `docker-compose.yml` starts both).
+### Option A: everything in Docker (recommended, stays running)
+
+Requires Docker Desktop to be running. PostgreSQL, Redis, the API and the collector (every 30 minutes) start
+together and restart automatically:
+
+```bash
+cp .env.example apps/api/.env                            # set JWT_SECRET and COLLECTOR_API_KEY
+cp services/data-collector/.env.example services/data-collector/.env   # same COLLECTOR_API_KEY
+docker compose --profile full up -d --build
+curl http://localhost:3000/health                        # {"status":"ok","database":"up","redis":"up",...}
+cd apps/api && npm run smoke-test                        # 52 end-to-end checks against the running API
+```
+
+Logs: `docker logs -f utility-alerts-api` and `docker logs -f utility-alerts-collector`.
+
+### Admin account
+
+```bash
+cd apps/api && npm run create-admin -- 0788123456 "a-strong-password" Aline Uwase
+```
+
+### Connecting the app to the API
+
+| Where the app runs | `EXPO_PUBLIC_API_URL` in `apps/mobile/.env` |
+| --- | --- |
+| Android emulator | `http://10.0.2.2:3000` |
+| Physical phone (same Wi-Fi as the PC) | `http://<PC Wi-Fi IP>:3000`, e.g. `http://10.12.73.126:3000` (check with `ipconfig`; it can change) |
+
+"Could not reach the Rwanda Utility Alerts server" means the app cannot open that URL: check that
+`http://<that address>:3000/health` loads in the phone's browser.
+
+### Option B: API and collector on your machine
+
+Requirements: Node.js 22, Python 3.13, PostgreSQL and Redis (`docker compose up -d` starts only those two).
 
 ```bash
 cp .env.example apps/api/.env          # then set JWT_SECRET and COLLECTOR_API_KEY
@@ -85,6 +118,7 @@ cd apps/web && npm run typecheck
 
 | Method | Path | Auth |
 | --- | --- | --- |
+| GET | `/health` (database + Redis status) | public |
 | POST | `/auth/register`, `/auth/login` | public (rate limited) |
 | GET / PATCH | `/users/me`, PATCH `/users/me/password` | user |
 | GET | `/outages/upcoming`, `/outages/active`, `/outages/:id` | public |
@@ -95,7 +129,10 @@ cd apps/web && npm run typecheck
 | GET | `/locations`, `/locations/district/:district`, `/utilities` | public |
 | POST | `/outages`, PATCH `/outages/:id/status`, `/locations`, `/utilities` | admin |
 | GET | `/admin/*`, PATCH `/reports/:id/status` | admin |
-| POST | `/outages/internal/collector` | collector API key |
+| POST | `/outages/internal/collector`, `/data-sources/internal/report` | collector API key |
+
+Background jobs in the API: outage statuses move to `active` when an outage starts and `completed` when it ends
+(every 5 minutes), and alerts are queued in Redis and pushed through Expo.
 
 ## Support lines shown in the app
 

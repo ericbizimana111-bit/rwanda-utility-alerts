@@ -87,7 +87,7 @@ class ApiClient:
                     logger.warning(
                         f"API request failed "
                         f"(attempt {attempt}/3): "
-                        f"{error}"
+                        f"{type(error).__name__}: {error}"
                     )
 
                     if attempt == 3:
@@ -100,3 +100,30 @@ class ApiClient:
         raise RuntimeError(
             "Failed to create outage"
         )
+
+    async def report_source(
+        self,
+        name: str,
+        base_url: str,
+        success: bool,
+        item_count: int | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Records a source check so admins can see when REG / WASAC were last read."""
+
+        payload: dict = {"name": name, "baseUrl": base_url, "success": success}
+        if item_count is not None:
+            payload["itemCount"] = item_count
+        if error:
+            payload["error"] = error[:2000]
+
+        try:
+            async with httpx.AsyncClient(timeout=settings.REQUEST_TIMEOUT) as client:
+                response = await client.post(
+                    f"{self.base_url}/data-sources/internal/report",
+                    json=payload,
+                    headers={"X-API-Key": settings.COLLECTOR_API_KEY},
+                )
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Could not record %s source check: %s: %s", name, type(exc).__name__, exc)

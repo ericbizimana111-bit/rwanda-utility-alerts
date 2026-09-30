@@ -19,13 +19,13 @@ export class AuthController {
     constructor(private readonly authService: AuthService) { }
 
     // Stricter limits on credential endpoints to slow down brute forcing.
-    @Throttle({ default: { limit: 10, ttl: 60_000 } })
+    @Throttle({ default: { limit: 20, ttl: 60_000 } })
     @Post('register')
     async register(@Body() registerDto: RegisterDto) {
         return this.authService.register(registerDto);
     }
 
-    @Throttle({ default: { limit: 10, ttl: 60_000 } })
+    @Throttle({ default: { limit: 20, ttl: 60_000 } })
     @Post('login')
     async login(@Body() loginDto: LoginDto) {
         const user = await this.authService.validateUser(

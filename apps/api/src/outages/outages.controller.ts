@@ -3,6 +3,7 @@ import {
     Controller,
     Get,
     Param,
+    ParseUUIDPipe,
     Patch,
     Post,
     Req,
@@ -15,6 +16,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { OutagesService } from './outages.service';
 import { CreateOutageDto, UpdateOutageStatusDto } from './dto/create-outage.dto';
 import { InternalCollectorGuard } from '../auth/guards/collector-api-key.guard';
+import { CollectorOutageDto } from './dto/collector-outage.dto';
 
 @Controller('outages')
 export class OutagesController {
@@ -40,7 +42,7 @@ export class OutagesController {
     }
 
     @Get(':id')
-    async findOne(@Param('id') id: string) {
+    async findOne(@Param('id', ParseUUIDPipe) id: string) {
         return this.outagesService.findById(id);
     }
 
@@ -61,13 +63,13 @@ export class OutagesController {
     @UseGuards(JwtAuthGuard, RolesGuard)
     @Roles('ADMIN')
     @Patch(':id/status')
-    async updateStatus(@Param('id') id: string, @Body() dto: UpdateOutageStatusDto) {
+    async updateStatus(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateOutageStatusDto) {
         return this.outagesService.updateStatus(id, dto.status);
     }
 
     @UseGuards(InternalCollectorGuard)
     @Post('internal/collector')
-    async createFromCollector(@Body() dto: any) {
+    async createFromCollector(@Body() dto: CollectorOutageDto) {
         return this.outagesService.createFromCollector(dto);
     }
 }

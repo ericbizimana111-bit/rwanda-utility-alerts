@@ -16,6 +16,20 @@ export class NotificationQueueService {
         private readonly notificationQueue: Queue,
     ) { }
 
+    /** True when Redis answers within the timeout. */
+    async isHealthy(timeoutMs = 2000): Promise<boolean> {
+        try {
+            // A cheap read that round-trips to Redis.
+            await Promise.race([
+                this.notificationQueue.count(),
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
+            ]);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     async enqueueOutageNotification(outageId: string) {
         const job = await this.notificationQueue.add(
             PROCESS_OUTAGE_NOTIFICATIONS_JOB,

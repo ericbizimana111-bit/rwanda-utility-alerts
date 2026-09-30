@@ -4,6 +4,7 @@ import {
     Delete,
     Get,
     Param,
+    ParseUUIDPipe,
     Post,
     Req,
     UseGuards,
@@ -42,7 +43,7 @@ export class DevicesController {
     @Delete(':id')
     async deactivateDevice(
         @Req() req: any,
-        @Param('id') deviceId: string,
+        @Param('id', ParseUUIDPipe) deviceId: string,
     ) {
         return this.devicesService.deactivateDevice(
             req.user.id,

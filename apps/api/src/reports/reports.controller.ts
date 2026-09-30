@@ -3,6 +3,7 @@ import {
     Controller,
     Get,
     Param,
+    ParseUUIDPipe,
     Patch,
     Post,
     Req,
@@ -39,19 +40,19 @@ export class ReportsController {
     }
 
     @Get(':id')
-    findOne(@Req() req: any, @Param('id') reportId: string) {
+    findOne(@Req() req: any, @Param('id', ParseUUIDPipe) reportId: string) {
         return this.reportsService.findById(reportId, req.user.id, req.user.role === 'ADMIN');
     }
 
     @Patch(':id')
-    updateMine(@Req() req: any, @Param('id') reportId: string, @Body() dto: UpdateReportDto) {
+    updateMine(@Req() req: any, @Param('id', ParseUUIDPipe) reportId: string, @Body() dto: UpdateReportDto) {
         return this.reportsService.updateMine(req.user.id, reportId, dto.description as string);
     }
 
     @Patch(':id/status')
     @UseGuards(RolesGuard)
     @Roles('ADMIN')
-    moderate(@Param('id') reportId: string, @Body() dto: ModerateReportDto) {
+    moderate(@Param('id', ParseUUIDPipe) reportId: string, @Body() dto: ModerateReportDto) {
         return this.reportsService.moderate(reportId, dto.status);
     }
 }

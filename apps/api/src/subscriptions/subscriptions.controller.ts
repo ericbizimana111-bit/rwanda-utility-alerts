@@ -4,6 +4,7 @@ import {
     Delete,
     Get,
     Param,
+    ParseUUIDPipe,
     Post,
     Req,
     UseGuards,
@@ -42,7 +43,7 @@ export class SubscriptionsController {
     @Delete(':id')
     async remove(
         @Req() req: any,
-        @Param('id') subscriptionId: string,
+        @Param('id', ParseUUIDPipe) subscriptionId: string,
     ) {
         return this.subscriptionsService.remove(
             req.user.id,

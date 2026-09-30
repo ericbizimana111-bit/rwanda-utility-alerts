@@ -7,6 +7,8 @@ services:
       POSTGRES_USER: ${DATABASE_USER:-utility_admin}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-utility_password}
       POSTGRES_DB: ${DATABASE_NAME:-utility_alerts}
+      TZ: Africa/Kigali
+      PGTZ: Africa/Kigali
     ports:
       - "5433:5432"
     volumes:
@@ -29,6 +31,42 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Full backend: `docker compose --profile full up -d --build`
+  # (without the profile only PostgreSQL and Redis start, for `npm run start:dev`).
+  api:
+    profiles: ["full"]
+    build: ./apps/api
+    container_name: utility-alerts-api
+    restart: unless-stopped
+    env_file: ./apps/api/.env
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      PORT: "3000"
+      TZ: Africa/Kigali
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  collector:
+    profiles: ["full"]
+    build: ./services/data-collector
+    container_name: utility-alerts-collector
+    restart: unless-stopped
+    env_file: ./services/data-collector/.env
+    environment:
+      API_BASE_URL: http://api:3000
+      TZ: Africa/Kigali
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   postgres_data:

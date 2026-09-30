@@ -49,12 +49,12 @@ export class OutagesService {
 
     async create(data: {
         title: string;
-        description?: string;
+        description?: string | null;
         utilityId: string;
         locationId?: string;
         locationIds?: string[];
         startTime: string | Date;
-        endTime?: string | Date;
+        endTime?: string | Date | null;
         status?: string;
         sourceType?: string;
         sourceName?: string | null;
@@ -145,7 +145,20 @@ export class OutagesService {
         });
     }
 
-    async createFromCollector(payload: any) {
+    async createFromCollector(payload: {
+        title: string;
+        description?: string | null;
+        utilityId: string;
+        locationId?: string;
+        locationIds?: string[];
+        startTime: string;
+        endTime?: string | null;
+        status?: string;
+        sourceType?: string;
+        sourceName?: string | null;
+        sourceUrl?: string | null;
+        externalId: string;
+    }) {
         const { title, utilityId, locationIds, locationId, startTime, endTime, status, sourceType, sourceName, sourceUrl, externalId, description } = payload;
 
         return this.create({

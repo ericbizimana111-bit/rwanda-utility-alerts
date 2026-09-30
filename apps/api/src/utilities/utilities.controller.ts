@@ -3,6 +3,7 @@ import {
     Controller,
     Get,
     Param,
+    ParseUUIDPipe,
     Post,
     UseGuards,
 } from '@nestjs/common';
@@ -45,7 +46,7 @@ export class UtilitiesController {
 
     @Get(':id')
     async findById(
-        @Param('id') id: string,
+        @Param('id', ParseUUIDPipe) id: string,
     ) {
         return this.utilitiesService.findById(id);
     }

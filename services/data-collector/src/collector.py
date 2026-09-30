@@ -76,7 +76,16 @@ class UnifiedCollector:
         if not electricity or not water:
             raise RuntimeError("Utilities not found for collector run")
 
-        reg_outages = await self.collect_reg()
+        # Each source is independent: a failure at REG must not stop WASAC.
+        try:
+            reg_outages = await self.collect_reg()
+            await self.api_client.report_source("REG", REG_OUTAGES_URL, True, len(reg_outages))
+        except Exception as exc:
+            reg_outages = []
+            failures += 1
+            logger.exception("REG collection failed: %s", exc)
+            await self.api_client.report_source("REG", REG_OUTAGES_URL, False, error=str(exc))
+
         for outage_data in reg_outages:
             try:
                 locations = await self.location_resolver.find_locations(
@@ -109,7 +118,16 @@ class UnifiedCollector:
                 failures += 1
                 logger.exception("Failed to ingest REG outage: %s", exc)
 
-        water_announcements = await self.collect_wasac()
+        try:
+            water_announcements = await self.collect_wasac()
+            current = sum(1 for item in water_announcements if item.get("status") in {"planned", "active"})
+            await self.api_client.report_source("WASAC", WasacParser.OFFICIAL_URL, True, current)
+        except Exception as exc:
+            water_announcements = []
+            failures += 1
+            logger.exception("WASAC collection failed: %s", exc)
+            await self.api_client.report_source("WASAC", WasacParser.OFFICIAL_URL, False, error=str(exc))
+
         for item in water_announcements:
             try:
                 if item.get("status") not in {"planned", "active"}:

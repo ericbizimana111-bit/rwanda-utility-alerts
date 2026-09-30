@@ -73,7 +73,7 @@ class SourceClient:
                     f"GET failed "
                     f"(attempt {attempt}/"
                     f"{self.retries}): "
-                    f"{url} | {error}"
+                    f"{url} | {type(error).__name__}: {error}"
                 )
 
                 if attempt < self.retries:

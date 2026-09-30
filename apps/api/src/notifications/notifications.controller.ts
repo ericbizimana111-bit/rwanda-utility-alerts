@@ -2,6 +2,7 @@ import {
     Controller,
     Get,
     Param,
+    ParseUUIDPipe,
     Patch,
     Post,
     Req,
@@ -30,7 +31,7 @@ export class NotificationsController {
     @Patch(':id/read')
     async markAsRead(
         @Req() req: any,
-        @Param('id') notificationId: string,
+        @Param('id', ParseUUIDPipe) notificationId: string,
     ) {
         return this.notificationsService.markAsRead(
             req.user.id,
@@ -42,7 +43,7 @@ export class NotificationsController {
     @UseGuards(RolesGuard)
     @Roles('ADMIN')
     async createForOutage(
-        @Param('outageId') outageId: string,
+        @Param('outageId', ParseUUIDPipe) outageId: string,
     ) {
         return this.notificationsService.createNotificationsForOutage(
             outageId,

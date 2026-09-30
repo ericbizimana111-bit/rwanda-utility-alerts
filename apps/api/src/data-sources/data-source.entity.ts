@@ -32,6 +32,10 @@ export class DataSource {
     @Column({ type: 'text', nullable: true })
     lastError: string | null;
 
+    /** Current/upcoming announcements found in the last successful check. */
+    @Column({ type: 'int', nullable: true })
+    lastItemCount: number | null;
+
     @CreateDateColumn()
     createdAt: Date;
 

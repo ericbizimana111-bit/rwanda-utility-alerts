@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { OutagesController } from './outages.controller';
 import { OutagesService } from './outages.service';
+import { OutageLifecycleService } from './outage-lifecycle.service';
 import { Outage } from './outage.entity';
 import { OutageLocation } from './outage-location.entity';
 
@@ -21,7 +22,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     NotificationsModule,
   ],
   controllers: [OutagesController],
-  providers: [OutagesService],
+  providers: [OutagesService, OutageLifecycleService],
   exports: [OutagesService],
 })
 export class OutagesModule { }
